@@ -1412,6 +1412,8 @@ function doLogout(){
 async function initApp(){
   document.getElementById('yrVal').textContent=curYear;
   updateClock();
+  // Sync login screen with current DEPTS (e.g. loaded from server)
+  renderLoginRoles();
   // Show FAB buttons
   const fab = document.getElementById('fabGroup');
   if(fab) fab.style.display='flex';
@@ -1830,19 +1832,40 @@ function renderDeptMgr(){
     </div>`).join('');
 }
 
+function renderLoginRoles(){
+  const grid = document.getElementById('roleGrid');
+  if(!grid) return;
+  // Keep admin and hr buttons, rebuild dept buttons
+  const fixedBtns = `
+    <button class="rbtn" onclick="selRole('admin')" id="rb-admin"><span class="ri">🔑</span>Керуючий</button>
+    <button class="rbtn" onclick="selRole('hr')" id="rb-hr"><span class="ri">📁</span>Кадри</button>`;
+  const deptBtns = DEPTS.map((name, i) =>
+    `<button class="rbtn" onclick="selRole('d${i}')" id="rb-d${i}"><span class="ri">🏢</span>${name}</button>`
+  ).join('');
+  grid.innerHTML = fixedBtns + deptBtns;
+  // Restore selected state if any
+  if(selR) {
+    const btn = document.getElementById('rb-'+selR);
+    if(btn) btn.classList.add('sel');
+  }
+}
+
 function addDept(){
   const inp=document.getElementById('newDeptInp');
   const name=inp.value.trim();if(!name){toast('Введіть назву');return;}
   DEPTS.push(name);EMPS.push([]);
   const di=DEPTS.length-1;
   PASS[`d${di}`]='0000';
-  inp.value='';renderDeptMgr();renderSB();renderMbar();renderPwMgr();
+  inp.value='';
+  renderDeptMgr();renderSB();renderMbar();renderPwMgr();
+  renderLoginRoles(); // ← оновити екран входу
   toast('✓ Відділ додано');
 }
 function renameDept(i){
   const name=prompt('Нова назва:',DEPTS[i]);
   if(!name||!name.trim())return;
   DEPTS[i]=name.trim();renderDeptMgr();renderSB();
+  renderLoginRoles();
   if(i===curDept)document.getElementById('tbTitle').textContent=DEPTS[i];
   toast('✓ Перейменовано');
 }
@@ -1851,7 +1874,9 @@ function deleteDept(i){
   if(!confirm(`Видалити "${DEPTS[i]}"?`))return;
   DEPTS.splice(i,1);EMPS.splice(i,1);
   if(curDept>=DEPTS.length)curDept=0;
-  renderDeptMgr();renderSB();renderMbar();render();renderPwMgr();toast('✓ Видалено');
+  renderDeptMgr();renderSB();renderMbar();render();renderPwMgr();
+  renderLoginRoles();
+  toast('✓ Видалено');
 }
 
 let aeDi=-1;
@@ -2435,7 +2460,7 @@ function exportFullTabель(){
 // ─── КОНФІГУРАЦІЯ ────────────────────────────
 // Вставте сюди URL вашого Google Apps Script веб-додатку
 // Інструкція: дивіться GOOGLE_SHEETS_ІНСТРУКЦІЯ.txt
-const GS_URL = 'YOUR_APPS_SCRIPT_URL';
+const GS_URL = 'https://script.google.com/macros/s/AKfycbyzAj30gr4uTKyXSYBbG2i3EFFKkBFA9tUOVT_S2b02P0Zkh8UCGKv5-f8oM9BQf_r3HQ/exec';
 // ─────────────────────────────────────────────
 
 let gsEnabled = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
