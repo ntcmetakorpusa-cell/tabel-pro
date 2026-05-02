@@ -1429,7 +1429,8 @@ async function initApp(){
     const ok = await loadFromGS();
     if(ok){ setSyncIcon('ok'); toast('✓ Дані завантажено з Google Sheets'); }
     else   { setSyncIcon('error'); toast('⚠ Не вдалось завантажити. Перевірте налаштування.'); }
-    startPolling();
+    // Delay polling start to avoid race with initial load
+    setTimeout(startPolling, 5000);
   } else {
     setSyncIcon('offline');
   }
@@ -2460,7 +2461,7 @@ function exportFullTabель(){
 // ─── КОНФІГУРАЦІЯ ────────────────────────────
 // Вставте сюди URL вашого Google Apps Script веб-додатку
 // Інструкція: дивіться GOOGLE_SHEETS_ІНСТРУКЦІЯ.txt
-const GS_URL = 'https://script.google.com/macros/s/AKfycbx6n-3-oa2LubdgO1cbCFAMnPbDCL2CytCRubV0zr_ULmtGOEqmgDjiNDwsddPEj8EqwA/exec';
+const GS_URL = 'https://script.google.com/macros/s/AKfycbxTrwKOdvH3Jf7oNih-5iFo24he7HIPcsqkkIoXmvwDUDT65xuSyvXh7FcZVd1PWz_n9g/exec';
 // ─────────────────────────────────────────────
 
 let gsEnabled = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
@@ -2501,8 +2502,9 @@ async function loadFromGS(){
 async function saveToGS(){
   if(!gsEnabled || isSyncing) return;
   const h = dataHash();
-  if(h === lastSavedHash) return;
+  if(h === lastSavedHash){ setSyncIcon('ok'); return; }
   isSyncing = true;
+  saveTimer = null; // mark save as in-progress (no pending timer)
   setSyncIcon('saving');
   try {
     const payload = {DEPTS, EMPS, ATT, PASS, EID, ts: Date.now()};
@@ -2519,30 +2521,38 @@ async function saveToGS(){
   } catch(e){
     setSyncIcon('error');
     console.warn('GS save error:', e.message);
-  } finally { isSyncing = false; }
+  } finally {
+    isSyncing = false;
+  }
 }
 
 function scheduleSave(){
   if(!gsEnabled) return;
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveToGS, 1500);
+  saveTimer = setTimeout(() => {
+    saveTimer = null; // clear BEFORE saving so poll knows save is done
+    saveToGS();
+  }, 2000); // 2 seconds - enough time for rapid changes
 }
 
 // Poll for changes every 8 seconds (for read-only users)
 function startPolling(){
   if(!gsEnabled) return;
   pollInterval = setInterval(async () => {
+    // Skip if we are currently saving OR have a pending save scheduled
     if(isSyncing) return;
+    if(saveTimer) return; // pending local changes not yet saved — skip poll
     try {
       const r = await fetch(GS_URL + '?action=hash', {method:'GET', redirect:'follow'});
       const j = await r.json();
-      if(j.ok && j.hash !== lastSavedHash){
+      if(j.ok && j.hash && j.hash !== lastSavedHash){
+        // Only load if hash from server is newer than what we last saved
         const ok = await loadFromGS();
         if(ok){ renderSB(); renderMbar(); render(); setSyncIcon('ok'); }
       }
     } catch(e){ /* silent */ }
-  }, 8000);
+  }, 10000); // every 10s instead of 8s — gives more time for save to complete
 }
 
 function setSyncIcon(status){
