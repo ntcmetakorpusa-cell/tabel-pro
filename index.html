@@ -2459,32 +2459,34 @@ function exportFullTabель(){
 // ══════════════════════════════════════════════
 
 // ─── КОНФІГУРАЦІЯ ────────────────────────────
-// Вставте сюди URL вашого Google Apps Script веб-додатку
-// Інструкція: дивіться GOOGLE_SHEETS_ІНСТРУКЦІЯ.txt
-const GS_URL = 'https://script.google.com/macros/s/AKfycbxTrwKOdvH3Jf7oNih-5iFo24he7HIPcsqkkIoXmvwDUDT65xuSyvXh7FcZVd1PWz_n9g/exec';
+const GS_URL = 'https://script.google.com/macros/s/AKfycbzjvios9OtCXF1hUEmqKVIoTnMJFA3YmbpQthE0lDElTKIeepkDkPFi4o1FQFMotLv6Xg/exec';
 // ─────────────────────────────────────────────
 
-let gsEnabled = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
-let saveTimer = null;
-let isSyncing = false;
+let gsEnabled     = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
+let isSyncing     = false;
+let isDirty       = false;   // true = есть несохранённые изменения
+let saveTimer     = null;
+let pollTimer     = null;
 let lastSavedHash = '';
-let pollInterval = null;
 
 function dataHash(){
-  try { return JSON.stringify({D:DEPTS,E:EMPS.map(d=>d.map(e=>e.id+e.name)),A:Object.keys(ATT).length}); }
-  catch(e){ return ''; }
+  try {
+    return JSON.stringify({
+      D: DEPTS,
+      E: EMPS.map(d => d.map(e => e.id + (e.shift||'') + (e.customStart||'') + (e.customEnd||''))),
+      P: PASS, I: EID
+    });
+  } catch(e){ return ''; }
 }
 
 async function loadFromGS(){
   if(!gsEnabled) return false;
+  // НИКОГДА не загружать если есть несохранённые изменения
+  if(isDirty || saveTimer !== null || isSyncing) return false;
   try {
-    const r = await fetch(GS_URL + '?action=load', {
-      method:'GET',
-      redirect:'follow'
-    });
+    const r = await fetch(GS_URL + '?action=load', {method:'GET', redirect:'follow'});
     if(!r.ok) return false;
-    const text = await r.text();
-    const j = JSON.parse(text);
+    const j = JSON.parse(await r.text());
     if(j.ok && j.data){
       const d = j.data;
       if(d.DEPTS) DEPTS = d.DEPTS;
@@ -2493,6 +2495,7 @@ async function loadFromGS(){
       if(d.PASS)  PASS  = d.PASS;
       if(d.EID)   EID   = d.EID;
       lastSavedHash = dataHash();
+      isDirty = false;
       return true;
     }
   } catch(e){ console.warn('GS load error:', e.message); }
@@ -2500,76 +2503,71 @@ async function loadFromGS(){
 }
 
 async function saveToGS(){
-  if(!gsEnabled || isSyncing) return;
+  saveTimer = null;
+  if(!gsEnabled) return;
+  if(isSyncing){ saveTimer = setTimeout(saveToGS, 2000); return; }
   const h = dataHash();
-  if(h === lastSavedHash){ setSyncIcon('ok'); return; }
+  if(h === lastSavedHash){ isDirty = false; setSyncIcon('ok'); return; }
   isSyncing = true;
-  saveTimer = null; // mark save as in-progress (no pending timer)
   setSyncIcon('saving');
   try {
-    const payload = {DEPTS, EMPS, ATT, PASS, EID, ts: Date.now()};
+    const body = JSON.stringify({DEPTS, EMPS, ATT, PASS, EID, ts: Date.now()});
     const r = await fetch(GS_URL, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: {'Content-Type': 'text/plain'},
-      body: JSON.stringify(payload)
+      method:'POST', redirect:'follow',
+      headers:{'Content-Type':'text/plain'}, body
     });
-    const text = await r.text();
-    const j = JSON.parse(text);
-    if(j.ok){ lastSavedHash = h; setSyncIcon('ok'); }
-    else { setSyncIcon('error'); }
+    const j = JSON.parse(await r.text());
+    if(j.ok){ lastSavedHash = h; isDirty = false; setSyncIcon('ok'); }
+    else { setSyncIcon('error'); saveTimer = setTimeout(saveToGS, 5000); }
   } catch(e){
     setSyncIcon('error');
-    console.warn('GS save error:', e.message);
-  } finally {
-    isSyncing = false;
-  }
+    saveTimer = setTimeout(saveToGS, 5000);
+  } finally { isSyncing = false; }
 }
 
 function scheduleSave(){
   if(!gsEnabled) return;
+  isDirty = true;            // СРАЗУ помечаем как изменено
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null; // clear BEFORE saving so poll knows save is done
-    saveToGS();
-  }, 2000); // 2 seconds - enough time for rapid changes
+  saveTimer = setTimeout(saveToGS, 2500);
 }
 
-// Poll for changes every 8 seconds (for read-only users)
 function startPolling(){
   if(!gsEnabled) return;
-  pollInterval = setInterval(async () => {
-    // Skip if we are currently saving OR have a pending save scheduled
-    if(isSyncing) return;
-    if(saveTimer) return; // pending local changes not yet saved — skip poll
-    try {
-      const r = await fetch(GS_URL + '?action=hash', {method:'GET', redirect:'follow'});
-      const j = await r.json();
-      if(j.ok && j.hash && j.hash !== lastSavedHash){
-        // Only load if hash from server is newer than what we last saved
-        const ok = await loadFromGS();
-        if(ok){ renderSB(); renderMbar(); render(); setSyncIcon('ok'); }
-      }
-    } catch(e){ /* silent */ }
-  }, 10000); // every 10s instead of 8s — gives more time for save to complete
+  setTimeout(() => {
+    setInterval(async () => {
+      if(isDirty || saveTimer !== null || isSyncing) return;
+      try {
+        const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
+        const j = JSON.parse(await r.text());
+        if(j.ok && j.hash && j.hash !== lastSavedHash && !isDirty && saveTimer===null){
+          const ok = await loadFromGS();
+          if(ok){ renderSB(); renderMbar(); render(); setSyncIcon('ok'); }
+        }
+      } catch(e){ /* silent */ }
+    }, 15000);
+  }, 8000);
 }
 
 function setSyncIcon(status){
   const el = document.getElementById('syncIcon');
   if(!el) return;
   const map = {
-    saving:  {ico:'🟡', tip:'Збереження в Google Sheets...'},
-    ok:      {ico:'🟢', tip:'Синхронізовано з Google Sheets'},
-    error:   {ico:'🔴', tip:'Помилка збереження. Натисніть для повтору.'},
+    saving:  {ico:'🟡', tip:'Збереження...'},
+    ok:      {ico:'🟢', tip:'Збережено'},
+    error:   {ico:'🔴', tip:'Помилка — натисніть для повтору'},
+    offline: {ico:'⚪', tip:'Офлайн'},
     loading: {ico:'🔄', tip:'Завантаження...'},
-    offline: {ico:'⚪', tip:'Google Sheets не налаштовано (офлайн)'},
   };
   const s = map[status] || map.offline;
-  el.innerHTML = `<span style="font-size:13px;cursor:pointer" title="${s.tip}" onclick="saveToGS()">${s.ico}</span>`;
+  el.textContent = s.ico;
+  el.title = s.tip;
+  if(status === 'error') el.onclick = () => { clearTimeout(saveTimer); saveTimer=null; saveToGS(); };
+  else el.onclick = null;
 }
 
-// ─── Hook all data-mutating functions (called after login) ────────
+
 function installSyncHooks(){
   const _mutations = [
     ['togAbs', togAbs], ['tpConfirm', tpConfirm],
