@@ -1423,22 +1423,22 @@ async function initApp(){
   // Init chat
   initChat();
   updateChatBadge();
-  // 1. Завжди спочатку завантажуємо з localStorage (миттєво)
-  const localLoaded = loadLocal();
-  if(localLoaded){ console.log('Дані завантажено з localStorage'); }
+  // 1. Кеш localStorage (миттєво)
+  const localLoaded = loadLocalCache();
 
-  // 2. Потім перевіряємо Google Sheets (якщо є новіші дані)
+  // 2. Google Sheets — головне сховище
   if(gsEnabled){
-    setSyncIcon('loading');
-    try {
-      const ok = await loadFromGS();
-      if(ok){
-        setSyncIcon('ok');
-        toast('✓ Дані синхронізовано з Google Sheets');
-      } else {
-        setSyncIcon(localLoaded ? 'ok' : 'offline');
-      }
-    } catch(e){ setSyncIcon('error'); }
+    const gsOk = await loadFromGS();
+    if(gsOk){
+      toast('✓ Дані завантажено');
+    } else if(localLoaded){
+      toast('Дані з кешу (GS недоступний)');
+      setSyncIcon('ok');
+      // Надсилаємо локальний кеш в GS якщо є несинхронізовані дані
+      if(localStorage.getItem(LS_DIRTY)==='1') doSaveGS();
+    } else {
+      setSyncIcon('offline');
+    }
     startPolling();
   } else {
     setSyncIcon(localLoaded ? 'ok' : 'offline');
@@ -1656,10 +1656,10 @@ function togAbs(eid,d){
   ea.absent=ea.absent||{};
   ea.absent[d]=!ea.absent[d];
   const emp=(EMPS[curDept]||[]).find(e=>e.id===eid);
-  const sh=SH[emp?.shift||'8'];
+  const sh=getEmpShift(emp);
   if(ea.absent[d]){ea.arrive[d]='';ea.depart[d]='';}
   else{ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);}
-  refreshCell(eid,d);renderStats();renderMbar();render();
+  refreshCell(eid,d);renderStats();renderMbar();render();scheduleSave();
 }
 
 function setWorkDay(eid,d){
@@ -1667,10 +1667,10 @@ function setWorkDay(eid,d){
   const att=getAtt();if(!att[eid])att[eid]={arrive:{},depart:{},absent:{},vacation:{}};
   const ea=att[eid];
   const emp=(EMPS[curDept]||[]).find(e=>e.id===eid);
-  const sh=SH[emp?.shift||'8'];
+  const sh=getEmpShift(emp);
   ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);
   ea.absent=ea.absent||{};ea.absent[d]=false;
-  refreshCell(eid,d);renderStats();
+  refreshCell(eid,d);renderStats();scheduleSave();
 }
 
 // ══════════════════════════════════════════════
@@ -1742,7 +1742,7 @@ function tpConfirm(){
   const ea=att[tpEid];
   ea.arrive=ea.arrive||{};ea.depart=ea.depart||{};
   if(tpFld==='arrive')ea.arrive[tpDay]=val;else ea.depart[tpDay]=val;
-  tpClose();refreshCell(tpEid,tpDay);renderStats();
+  tpClose();refreshCell(tpEid,tpDay);renderStats();scheduleSave();
 }
 function tpClose(){document.getElementById('tpOv').classList.remove('open');}
 
@@ -2464,38 +2464,28 @@ function exportFullTabель(){
 
 // ─── КОНФІГУРАЦІЯ FIREBASE ───────────────────
 // Замініть значення// ══════════════════════════════════════════════
-// СИНХРОНІЗАЦІЯ — localStorage (основне) + Google Sheets (резервне)
+// СИНХРОНІЗАЦІЯ — Google Sheets (основне) + localStorage (кеш)
 // ══════════════════════════════════════════════
 
-const GS_URL = 'https://script.google.com/macros/s/AKfycbxBQqLZ2xMrUShl9krTYMcIkFKeo_6YdvsqUlglaXWpymwY3th_BQUcm0CXD5Ke6IZ2IQ/exec';
-const LS_KEY  = 'tabelPRO_data_v1'; // ключ localStorage
+const GS_URL  = 'https://script.google.com/macros/s/AKfycbxZ0bVXA2P2kqLrr4HJhOiScdnHEZ2J5CHsJZw03H6pnmlRzf9HqiBA-AilQU-C9CHxLw/exec';
+const LS_KEY  = 'tabelPRO_cache_v2';
+const LS_DIRTY = 'tabelPRO_dirty';
 
-let gsEnabled = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
-let isSyncing = false;
-let saveTimer = null;
-let gsBackupTimer = null;
-let lastGsHash = '';
+let gsEnabled  = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
+let isSyncing  = false;
+let saveTimer  = null;
 
-// ── Хеш для порівняння ──
-function dataHash(){
+// ── Збереження в localStorage (кеш, миттєво) ──────
+function saveLocalCache(){
   try {
-    return DEPTS.length + '_' + EMPS.reduce((s,d)=>s+d.length,0) +
-           '_' + Object.keys(ATT).length + '_' + EID;
-  } catch(e){ return ''; }
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      DEPTS, EMPS, ATT, PASS, EID, ts: Date.now()
+    }));
+    localStorage.setItem(LS_DIRTY, '1');
+  } catch(e){}
 }
 
-// ══════════════════════════════════════════════
-// ЛОКАЛЬНЕ ЗБЕРІГАННЯ (миттєво, завжди працює)
-// ══════════════════════════════════════════════
-
-function saveLocal(){
-  try {
-    const payload = JSON.stringify({DEPTS, EMPS, ATT, PASS, EID, ts: Date.now()});
-    localStorage.setItem(LS_KEY, payload);
-  } catch(e){ console.warn('localStorage save error:', e); }
-}
-
-function loadLocal(){
+function loadLocalCache(){
   try {
     const raw = localStorage.getItem(LS_KEY);
     if(!raw) return false;
@@ -2509,117 +2499,133 @@ function loadLocal(){
   } catch(e){ return false; }
 }
 
-// Викликається після КОЖНОЇ зміни в табелі
+// ── Головна функція збереження ─────────────────────
+// Викликається після КОЖНОЇ зміни
 function scheduleSave(){
-  // 1. Зберігаємо локально ВІДРАЗУ (без затримки)
-  saveLocal();
+  // 1. Зберігаємо в localStorage ВІДРАЗУ (кеш)
+  saveLocalCache();
   setSyncIcon('saving');
-  // 2. Відправляємо в Google Sheets з затримкою (debounce)
-  if(gsEnabled){
-    clearTimeout(gsBackupTimer);
-    gsBackupTimer = setTimeout(saveToGS, 3000);
-  } else {
-    setSyncIcon('offline');
-  }
+
+  // 2. Надсилаємо в GS з debounce 1.5 сек
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSaveGS, 1500);
 }
 
-// ══════════════════════════════════════════════
-// GOOGLE SHEETS (резервна копія, для інших пристроїв)
-// ══════════════════════════════════════════════
-
-async function saveToGS(){
-  if(!gsEnabled || isSyncing) return;
+async function doSaveGS(){
+  saveTimer = null;
+  if(!gsEnabled){ setSyncIcon('offline'); return; }
+  if(isSyncing){ saveTimer = setTimeout(doSaveGS, 2000); return; }
   isSyncing = true;
   try {
-    const body = JSON.stringify({DEPTS, EMPS, ATT, PASS, EID, ts: Date.now()});
-    const r = await fetch(GS_URL, {
+    const body = JSON.stringify({DEPTS,EMPS,ATT,PASS,EID,ts:Date.now()});
+    const r = await fetch(GS_URL,{
       method:'POST', redirect:'follow',
       headers:{'Content-Type':'text/plain'}, body
     });
     const j = JSON.parse(await r.text());
     if(j.ok){
-      lastGsHash = dataHash();
+      localStorage.removeItem(LS_DIRTY);
       setSyncIcon('ok');
     } else {
       setSyncIcon('error');
-      // повтор через 10 сек
-      gsBackupTimer = setTimeout(saveToGS, 10000);
+      saveTimer = setTimeout(doSaveGS, 5000); // retry
     }
   } catch(e){
     setSyncIcon('error');
-    gsBackupTimer = setTimeout(saveToGS, 10000);
-    console.warn('GS save:', e.message);
+    saveTimer = setTimeout(doSaveGS, 5000); // retry
+    console.warn('GS save error:', e.message);
   } finally { isSyncing = false; }
 }
 
+// ── Завантаження з GS (при вході) ─────────────────
 async function loadFromGS(){
   if(!gsEnabled) return false;
   try {
+    setSyncIcon('loading');
     const r = await fetch(GS_URL+'?action=load',{method:'GET',redirect:'follow'});
     if(!r.ok) return false;
     const j = JSON.parse(await r.text());
     if(!j.ok || !j.data) return false;
     const d = j.data;
-    // Порівнюємо timestamp — беремо найновіші дані
+
+    // Порівнюємо з локальним кешем — беремо новіший
     const localRaw = localStorage.getItem(LS_KEY);
-    const localTs  = localRaw ? (JSON.parse(localRaw).ts || 0) : 0;
+    const localTs  = localRaw ? (JSON.parse(localRaw).ts||0) : 0;
     const gsTs     = d.ts || 0;
-    if(gsTs > localTs){
-      // Google Sheets новіший — завантажуємо
+
+    // Якщо є несинхронізовані локальні зміни — спочатку відправляємо їх
+    if(localStorage.getItem(LS_DIRTY) === '1' && localTs > gsTs){
+      console.log('Local data is newer — pushing to GS first');
+      await doSaveGS();
+      return false; // не перезаписуємо — наші дані новіші
+    }
+
+    if(gsTs >= localTs){
+      // GS новіший або однаковий — завантажуємо
       if(d.DEPTS) DEPTS = d.DEPTS;
       if(d.EMPS)  EMPS  = d.EMPS;
       if(d.ATT)   ATT   = d.ATT;
       if(d.PASS)  PASS  = d.PASS;
       if(d.EID)   EID   = d.EID;
-      saveLocal(); // зберігаємо локально щоб не завантажувати знову
+      saveLocalCache();
+      localStorage.removeItem(LS_DIRTY);
+      setSyncIcon('ok');
       return true;
     }
-    return false; // локальні дані новіші або однакові
-  } catch(e){ console.warn('GS load:', e.message); return false; }
+    return false;
+  } catch(e){
+    console.warn('GS load error:', e.message);
+    return false;
+  }
 }
 
-// ── Polling для інших пристроїв (тільки коли не зберігаємо) ──
+// ── Polling — для синхронізації між пристроями ─────
+let _lastGsTs = 0;
 function startPolling(){
   if(!gsEnabled) return;
-  setInterval(async () => {
-    if(isSyncing || gsBackupTimer) return; // не заважаємо збереженню
+  setInterval(async()=>{
+    if(isSyncing || saveTimer) return; // не заважаємо збереженню
     try {
       const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
-      if(j.ok && j.hash && j.hash !== lastGsHash){
-        lastGsHash = j.hash;
+      if(j.ok && j.ts && j.ts !== _lastGsTs){
+        _lastGsTs = j.ts;
         const ok = await loadFromGS();
-        if(ok){ renderSB(); renderMbar(); render(); setSyncIcon('ok'); }
+        if(ok){ renderSB();renderMbar();render(); }
       }
-    } catch(e){ /* мовчки */ }
-  }, 20000); // кожні 20 сек — досить для синхронізації між пристроями
+    } catch(e){}
+  }, 15000);
 }
 
+// ── Іконка статусу ──────────────────────────────────
 function setSyncIcon(status){
   const el = document.getElementById('syncIcon');
   if(!el) return;
   const map = {
+    loading: {ico:'🔄', tip:'Завантаження з Google Sheets...'},
     saving:  {ico:'🟡', tip:'Зберігається...'},
     ok:      {ico:'🟢', tip:'Збережено'},
-    error:   {ico:'🔴', tip:'Помилка GS — дані збережені локально. Натисніть для повтору.'},
-    offline: {ico:'⚪', tip:'Офлайн — дані збережені локально'},
-    loading: {ico:'🔄', tip:'Завантаження...'},
+    error:   {ico:'🔴', tip:'Помилка — дані збережено локально. Натисніть для повтору.'},
+    offline: {ico:'⚪', tip:'Офлайн — Google Sheets не налаштовано'},
   };
   const s = map[status] || map.offline;
   el.textContent = s.ico;
   el.title = s.tip;
-  if(status === 'error') el.onclick = () => { clearTimeout(gsBackupTimer); saveToGS(); };
-  else el.onclick = null;
+  el.onclick = status==='error' ? ()=>{ clearTimeout(saveTimer); doSaveGS(); } : null;
 }
+
+// Псевдонім для зворотної сумісності
+function saveToGS(){ return doSaveGS(); }
+function saveLocal(){ saveLocalCache(); }
+function loadLocal(){ return loadLocalCache(); }
 
 
 function installSyncHooks(){
+  // Wrap all data-changing functions to trigger save
   const _mutations = [
-    ['togAbs', togAbs], ['tpConfirm', tpConfirm],
     ['saveDeptEd', saveDeptEd], ['saveEmp', saveEmp],
     ['confirmVacation', confirmVacation], ['cancelVacation', cancelVacation],
-    ['addDept', addDept], ['quickAdd', quickAdd],
-    ['setWorkDay', setWorkDay], ['savePw', savePw]
+    ['addDept', addDept], ['quickAdd', quickAdd], ['savePw', savePw]
   ];
   _mutations.forEach(([name, fn]) => {
     window[name] = function(){ fn.apply(this, arguments); scheduleSave(); };
@@ -2628,6 +2634,7 @@ function installSyncHooks(){
   window.aeAddEmp = function(){ _origAeAddEmp.apply(this, arguments); scheduleSave(); };
   const _origAeDelEmp = aeDelEmp;
   window.aeDelEmp = function(){ _origAeDelEmp.apply(this, arguments); scheduleSave(); };
+  // togAbs, tpConfirm, setWorkDay already call scheduleSave() directly
 }
 // ══════════════════════════════════════════════
 // CHIEF SORT — начальники цеху/ділянки вгору
