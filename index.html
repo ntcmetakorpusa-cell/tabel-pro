@@ -1432,7 +1432,7 @@ function getEmpShift(emp){
 // ══════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════
-let PASS={admin:'1111',hr:'8888',d0:'2222',d1:'3333',d2:'4444',d3:'5555',d4:'6666',d5:'7777'};
+let PASS={}; // Паролі зберігаються в Google Sheets — не тут!
 let DEPTS=['Відділ 1','Відділ 2','Відділ 3','Відділ 4','Відділ 5','Відділ 6'];
 
 let EMPS=[
@@ -1651,39 +1651,84 @@ function selRole(r){
   }, 100);
 }
 function togglePw(){const i=document.getElementById('pwInp');i.type=i.type==='password'?'text':'password';}
-function doLogin(){
-  if(!selR)return;
-  const pw=document.getElementById('pwInp').value;
-  if(pw!==(PASS[selR]||'')){
-    document.getElementById('pwErr').style.display='block';
-    document.getElementById('pwInp').className='pw-inp err';
-    document.getElementById('pwInp').focus();
+async function doLogin(){
+  if(!selR) return;
+  const pw = document.getElementById('pwInp').value;
+  const pwErr = document.getElementById('pwErr');
+  const pwInp = document.getElementById('pwInp');
+  const lgo   = document.getElementById('lgo');
+
+  if(!pw){ pwErr.textContent='Введіть пароль'; pwErr.style.display='block'; return; }
+
+  // Якщо GS не налаштований — локальна перевірка (для тесту)
+  if(!gsEnabled){
+    if(pw !== (PASS[selR]||'')){
+      pwErr.textContent='Невірний пароль';
+      pwErr.style.display='block';
+      pwInp.className='pw-inp err';
+      return;
+    }
+    _completeLogin(selR, null);
     return;
   }
-  curRole=selR;
-  isAdmin=curRole==='admin';
-  isHR=curRole==='hr';
-  canEdit=isAdmin||(curRole.startsWith('d'));
-  curDept=curRole.startsWith('d')?parseInt(curRole.slice(1)):0;
-  document.getElementById('loginScreen').style.display='none';
-  document.getElementById('appShell').style.display='flex';
-  document.getElementById('sbRole').textContent=isAdmin?'Керуючий':isHR?'Відділ кадрів':'Голова підрозділу';
-  // Desktop buttons
-  document.getElementById('btnAdmin').style.display=isAdmin?'':'none';
-  document.getElementById('btnHR').style.display=(isAdmin||isHR)?'':'none';
-  document.getElementById('tbar').style.display=(canEdit&&!isHR)?'flex':'none';
-  document.getElementById('btnEdit').style.display=isAdmin?'':'none';
-  document.getElementById('btnSaveNow').style.display=canEdit?'':'none';
-  // Mobile menu buttons
-  const btnAdminMob = document.getElementById('btnAdminMob');
-  if(btnAdminMob) btnAdminMob.style.display = isAdmin?'':'none';
-  const btnHRMob = document.getElementById('btnHRMob');
-  if(btnHRMob) btnHRMob.style.display = (isAdmin||isHR)?'':'none';
-  const btnHistMob = document.getElementById('btnHistMob');
-  if(btnHistMob) btnHistMob.style.display = isAdmin?'':'none';
-  if(gsEnabled) installSyncHooks();
+
+  // ── Перевірка пароля через Google Sheets ──
+  lgo.disabled = true;
+  lgo.textContent = '⏳ Перевірка...';
+  pwErr.style.display = 'none';
+
+  try {
+    const url = GS_URL + '?action=checkpass&role=' + encodeURIComponent(selR) + '&pw=' + encodeURIComponent(pw);
+    const r   = await fetch(url, { method:'GET', redirect:'follow' });
+    const j   = await r.json();
+
+    if(!j.ok || j.wrong){
+      pwErr.textContent = 'Невірний пароль';
+      pwErr.style.display = 'block';
+      pwInp.className = 'pw-inp err';
+      pwInp.focus();
+      return;
+    }
+
+    // Пароль правильний — завантажуємо дані з відповіді
+    _completeLogin(selR, j.data);
+
+  } catch(e){
+    // Помилка мережі — пробуємо локальний пароль як запасний варіант
+    if(pw === (PASS[selR]||'')){
+      _completeLogin(selR, null);
+    } else {
+      pwErr.textContent = "Помилка мережі. Перевірте інтернет.";
+      pwErr.style.display = 'block';
+    }
+  } finally {
+    lgo.disabled = false;
+    lgo.textContent = 'Увійти →';
+  }
+}
+
+function _completeLogin(role, serverData){
+  curRole = role;
+  isAdmin = curRole === 'admin';
+  isHR    = curRole === 'hr';
+  canEdit = isAdmin || curRole.startsWith('d');
+  curDept = curRole.startsWith('d') ? parseInt(curRole.slice(1)) : 0;
+
+  // Якщо сервер повернув дані — застосуємо їх
+  if(serverData){
+    if(serverData.DEPTS) DEPTS = serverData.DEPTS;
+    if(serverData.EMPS)  EMPS  = serverData.EMPS;
+    if(serverData.ATT)   ATT   = serverData.ATT;
+    if(serverData.PASS)  PASS  = serverData.PASS;
+    if(serverData.EID)   EID   = serverData.EID;
+    saveLocalCache();
+  }
+
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appShell').style.display = 'flex';
   initApp();
 }
+
 function doLogout(){
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('appShell').style.display='none';
@@ -2761,7 +2806,7 @@ function exportFullTabель(){
 // СИНХРОНІЗАЦІЯ — Google Sheets (основне) + localStorage (кеш)
 // ══════════════════════════════════════════════
 
-const GS_URL  = 'https://script.google.com/macros/s/AKfycbyHeiG9QsH1PMM3LToKXPonEVnAtpsJ9IKNOeR7zczOzqdjtrlOqQ27d5d-MpOdJ_EOBA/exec';
+const GS_URL  = 'https://script.google.com/macros/s/AKfycbwPZVS1-WwKWYWBsp476-FHTWfiRtrmg9J-IouI8T6N6po1m0eHvdmmbeKJimNaCZnmJw/exec';
 const LS_KEY  = 'tabelPRO_cache_v2';
 const LS_DIRTY = 'tabelPRO_dirty';
 
