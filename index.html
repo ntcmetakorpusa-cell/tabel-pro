@@ -1040,8 +1040,8 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
   <div class="mobile-header">
     <div class="mobile-day-nav">
       <button class="day-nav-btn" onclick="mobileNavDay(-1)">‹</button>
-      <div style="text-align:center;min-width:110px">
-        <div class="mobile-day-label" id="mobileDayLabel"></div>
+      <div style="text-align:center;min-width:110px;cursor:pointer" onclick="openMobileDatePicker()" title="Натисніть щоб вибрати дату">
+        <div class="mobile-day-label" id="mobileDayLabel" style="text-decoration:underline dotted;text-underline-offset:3px"></div>
         <div class="mobile-day-sub" id="mobileDaySub"></div>
       </div>
       <button class="day-nav-btn" onclick="mobileNavDay(1)">›</button>
@@ -2870,6 +2870,7 @@ async function doSaveGS(){
     const j = JSON.parse(await r.text());
     if(j.ok){
       _lastServerTs = ts;
+      localStorage.setItem('_lastSavedTs', String(ts));
       saveLocalCache();
       setSyncIcon('ok');
     } else {
@@ -2893,24 +2894,17 @@ async function loadFromGS(){
     const j = JSON.parse(await r.text());
     if(!j.ok || !j.data) return false;
     const d = j.data;
-    const serverTs = d.ts || 0;
-    const localTs  = parseInt(localStorage.getItem(LS_TS)||'0');
-
-    // Якщо сервер новіший — беремо з сервера
-    if(serverTs >= localTs){
-      if(d.DEPTS) DEPTS=d.DEPTS;
-      if(d.EMPS)  EMPS=d.EMPS;
-      if(d.ATT)   ATT=d.ATT;
-      if(d.PASS)  PASS=d.PASS;
-      if(d.EID)   EID=d.EID;
-      _lastServerTs = serverTs;
-      saveLocalCache();
-      setSyncIcon('ok');
-      return true;
-    }
-    // Локальні новіші — відправляємо на сервер
+    // Завжди беремо дані з сервера при завантаженні
+    // (сервер = єдине джерело правди)
+    if(d.DEPTS) DEPTS=d.DEPTS;
+    if(d.EMPS)  EMPS=d.EMPS;
+    if(d.ATT)   ATT=d.ATT;
+    if(d.PASS)  PASS=d.PASS;
+    if(d.EID)   EID=d.EID;
+    _lastServerTs = d.ts || Date.now();
+    saveLocalCache();
     setSyncIcon('ok');
-    return false;
+    return true;
   } catch(e){
     console.warn('GS load:', e.message);
     return false;
@@ -2921,22 +2915,28 @@ async function loadFromGS(){
 // Завдяки цьому всі пристрої бачать зміни одночасно
 function startPolling(){
   if(!gsEnabled) return;
+  let _lastHash = '';
   setInterval(async ()=>{
     if(isSyncing || saveTimer) return;
     try {
       const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
-      // Якщо на сервері новіші дані — завантажуємо
-      if(j.ok && j.ts && Number(j.ts) > _lastServerTs){
-        const ok = await loadFromGS();
-        if(ok){
-          renderSB(); renderMbar(); render();
-          if(isMobile&&isMobile()) renderMobileView();
-          toast('🔄 Дані оновлено');
+      // Використовуємо hash — більш надійно ніж timestamp
+      if(j.ok && j.hash && j.hash !== _lastHash){
+        if(_lastHash !== ''){
+          // Є зміни від іншого пристрою — завантажуємо
+          const ok = await loadFromGS();
+          if(ok){
+            renderSB(); renderMbar(); render();
+            const mv = document.getElementById('mobileView');
+            if(mv && mv.style.display !== 'none') renderMobileView();
+            toast('🔄 Оновлено з іншого пристрою');
+          }
         }
+        _lastHash = j.hash;
       }
-    } catch(e){}
-  }, 10000); // кожні 10 секунд
+    } catch(e){ console.warn('Poll error:', e.message); }
+  }, 5000); // кожні 5 секунд секунд
 }
 
 // ─── Іконка статусу синхронізації ─────────────
@@ -3895,6 +3895,37 @@ function isMobile(){ return window.innerWidth <= 768; }
 // ── Mobile current day ──
 let mobileDay = new Date().getDate();
 let mobileMonth = new Date().getMonth() + 1;
+
+// ─── Date picker для мобайлу ──────────────────
+function openMobileDatePicker(){
+  // Створити інпут type=date і показати нативний picker
+  const d = new Date(curYear, curMonth-1, mobileDay);
+  const val = d.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  const inp = document.createElement('input');
+  inp.type = 'date';
+  inp.value = val;
+  inp.style.cssText = 'position:fixed;opacity:0;top:0;left:0;width:100%;height:100%;z-index:9999';
+
+  inp.addEventListener('change', function(){
+    if(!inp.value) return;
+    const [y,mo,dd] = inp.value.split('-').map(Number);
+    curYear  = y;
+    curMonth = mo;
+    mobileDay = dd;
+    document.body.removeChild(inp);
+    renderMobileView();
+    renderMbar();
+  });
+
+  inp.addEventListener('blur', function(){
+    setTimeout(()=>{ if(document.body.contains(inp)) document.body.removeChild(inp); }, 300);
+  });
+
+  document.body.appendChild(inp);
+  inp.focus();
+  inp.click();
+}
 
 function renderMobileView(){
   if(!isMobile()) return;
