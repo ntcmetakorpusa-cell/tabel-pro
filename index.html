@@ -368,7 +368,16 @@ input,select,textarea{font-family:var(--font)}
 .tw{
   background:var(--s0);border:1px solid var(--bd);border-radius:var(--r16);
   overflow:auto;box-shadow:var(--sh1);
+  /* Подвійний скролбар — зверху і знизу */
+  display:flex;flex-direction:column;
 }
+.tw table{flex:1}
+/* Mirror scrollbar at top */
+.tw-scroll-top{
+  overflow-x:auto;overflow-y:hidden;height:16px;
+  border-bottom:1px solid var(--bd);
+}
+.tw-scroll-top-inner{height:1px}
 table{border-collapse:collapse;width:max-content;min-width:100%}
 thead th{position:sticky;top:0;z-index:10;background:var(--s1)}
 th.nc,td.nc{position:sticky;left:0;z-index:12;background:var(--s1)}
@@ -382,10 +391,10 @@ th{
 }
 th.nc{text-align:left;padding-left:18px;min-width:175px;width:175px;border-right:1px solid var(--bd)}
 th.dc{min-width:88px;width:88px}
-th.sc2{min-width:144px;width:144px;background:var(--s2);border-left:2px solid var(--bd2)}
+th.sc2{min-width:144px;width:144px;background:var(--s2);border-left:2px solid var(--bd2);position:sticky;right:0;z-index:11}
 td{padding:0;border-bottom:1px solid var(--bd);vertical-align:top}
 td.nc{padding:10px 12px 10px 18px;border-right:1px solid var(--bd);vertical-align:middle;min-width:175px}
-td.summary-td{border-left:2px solid var(--bd2);background:var(--s2)!important;vertical-align:middle}
+td.summary-td{border-left:2px solid var(--bd2);background:var(--s2)!important;vertical-align:middle;position:sticky;right:0;z-index:5}
 tr:last-child td{border-bottom:none}
 tbody tr{transition:background .1s}
 
@@ -1090,7 +1099,8 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 </div>
 
 <div class="ta" style="display:none" id="desktopTable">
-      <div class="tw">
+      <div class="tw" id="tableWrap">
+      <div class="tw-scroll-top" id="scrollTop"><div class="tw-scroll-top-inner" id="scrollTopInner"></div></div>
         <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
       </div>
     </div>
@@ -1525,9 +1535,13 @@ function attKey(di,m,y){return`${di}_${m}_${y}`}
 function getAtt(di,m,y){
   di=di===undefined?curDept:di;m=m||curMonth;y=y||curYear;
   const k=attKey(di,m,y);
-  // Не заповнюємо заводськими — сервер є джерелом правди
   if(!ATT[k]) ATT[k]={};
   return ATT[k];
+}
+// Безпечно отримати запис конкретного співробітника
+function getEmpAtt(att, emp, m, y){
+  if(!att[emp.id]) att[emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
+  return att[emp.id];
 }
 
 function mkEmpAtt(emp,m,y){
@@ -1901,7 +1915,7 @@ function render(){
   // body
   let b='';
   emps.forEach(emp=>{
-    const ea=att[emp.id]||(att[emp.id]=mkEmpAtt(emp));
+    const ea=att[emp.id]||(att[emp.id]={arrive:{},depart:{},absent:{},vacation:{}});
     const sh=getEmpShift(emp);
     const bdd=bdDiff(emp.bday);
     const bdToday=bdd===0,bdSoon=bdd!==null&&bdd>0&&bdd<=7;
@@ -3850,7 +3864,9 @@ render = function(){
 
   let b = '';
   sorted.forEach(emp => {
-    const ea  = att[emp.id] || (att[emp.id] = mkEmpAtt(emp));
+    // Безпечний доступ — НЕ заповнюємо заводськими даними
+    if(!att[emp.id]) att[emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
+    const ea = att[emp.id];
     const sh  = getEmpShift(emp);
     const bdd = bdDiff(emp.bday);
     const bdToday = bdd===0, bdSoon = bdd!==null&&bdd>0&&bdd<=7;
@@ -4022,112 +4038,139 @@ function renderMobileCards(d){
   const days = dim(curMonth, curYear);
 
   if(!emps.length){
-    el.innerHTML = `<div style="text-align:center;padding:3rem 1rem">
+    el.innerHTML=`<div style="text-align:center;padding:3rem 1rem">
       <div style="font-size:48px;margin-bottom:12px">👥</div>
-      <div style="font-size:16px;font-weight:700;color:var(--tx2);margin-bottom:6px">Немає співробітників</div>
-      <div style="font-size:13px;color:var(--tx3)">Додайте першого через ⚙ Адміністрування</div>
+      <div style="font-size:15px;font-weight:700;color:var(--tx2)">Немає співробітників</div>
     </div>`;
     return;
   }
 
   const we = isWE(d);
   const statusCfg = {
-    ok: {label:'Вчасно',    bg:'var(--gnb)', c:'var(--gn)', dot:'🟢'},
-    la: {label:'Запізнення',bg:'var(--amb)', c:'var(--am)', dot:'🟡'},
-    ea: {label:'Рано пішов',bg:'var(--orb)', c:'var(--or)', dot:'🟠'},
-    ab: {label:'Відсутній', bg:'var(--rdb)', c:'var(--rd)', dot:'🔴'},
-    ov: {label:'Надурочно', bg:'var(--blb)', c:'var(--bl)', dot:'🔵'},
-    we: {label:'Вихідний',  bg:'var(--s2)',  c:'var(--tx3)',dot:'⚪'},
-    va: {label:'Відпустка', bg:'var(--vab)', c:'var(--va)', dot:'🟣'},
-    em: {label:'Не відмічено',bg:'var(--s2)',c:'var(--tx3)',dot:'⚪'},
+    ok: {label:'Вчасно',      bg:'#e8fdf4', c:'#00a85a', dot:'●', dbg:'#00a85a'},
+    la: {label:'Запізнення',  bg:'#fff8e6', c:'#d97706', dot:'●', dbg:'#d97706'},
+    ea: {label:'Рано пішов',  bg:'#fff4ed', c:'#ea6c00', dot:'●', dbg:'#ea6c00'},
+    ab: {label:'Відсутній',   bg:'#fff0f0', c:'#dc2626', dot:'●', dbg:'#dc2626'},
+    ov: {label:'Надурочно',   bg:'#eff6ff', c:'#2563eb', dot:'●', dbg:'#2563eb'},
+    we: {label:'Вихідний',    bg:'var(--s2)',c:'var(--tx3)',dot:'○',dbg:'var(--tx3)'},
+    va: {label:'Відпустка',   bg:'#f5f3ff', c:'#7c3aed', dot:'●', dbg:'#7c3aed'},
+    em: {label:'Не відмічено',bg:'var(--s2)',c:'var(--tx3)',dot:'○',dbg:'var(--tx3)'},
   };
 
   el.innerHTML = emps.map((emp, empIdx) => {
-    const ea  = att[emp.id] || (att[emp.id] = mkEmpAtt(emp));
+    if(!att[emp.id]) att[emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
+    const ea  = att[emp.id];
     const sh  = getEmpShift(emp);
     const st  = cellSt(emp, ea, d);
     const a   = (ea.arrive||{})[d] || '';
     const dep = (ea.depart||{})[d] || '';
-    const avc = getAvatarColor(emp.name);
-    const initials = emp.name.split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
     const chief = isChief(emp);
     const canAct = canEdit && !isHR;
     const sCfg = statusCfg[st] || statusCfg.em;
 
-    // Monthly stats for mini progress
-    let monthPresent=0, monthAbsent=0, monthH=0;
+    // Ініціали
+    const parts = emp.name.trim().split(/\s+/);
+    const initials = (parts[0]?.[0]||'') + (parts[1]?.[0]||'');
+
+    // Кольори аватара по імені
+    const colors=[
+      ['#e0f2fe','#0369a1'],['#f0fdf4','#15803d'],['#fdf4ff','#7e22ce'],
+      ['#fff7ed','#c2410c'],['#fdf2f8','#be185d'],['#f0fdf4','#166534'],
+      ['#eff6ff','#1d4ed8'],['#fefce8','#92400e'],['#f5f3ff','#5b21b6'],
+    ];
+    const [avBg, avC] = colors[emp.name.charCodeAt(0) % colors.length];
+
+    // Місячна статистика
+    let monthPresent=0, monthH=0;
     for(let dd=1;dd<=days;dd++){
-      if(isWE(dd)&&!(ea.arrive[dd]||ea.depart[dd])) continue;
+      const _a=(ea.arrive||{}), _d=(ea.depart||{});
+      if(isWE(dd)&&!(_a[dd]||_d[dd])) continue;
       const ss=cellSt(emp,ea,dd);
-      if(ss==='ab') monthAbsent++;
-      else if(ss!=='em'&&ss!=='we'){ monthPresent++; monthH+=netM(emp,ea,dd); }
+      if(ss!=='ab'&&ss!=='em'&&ss!=='we'){ monthPresent++; monthH+=netM(emp,ea,dd); }
     }
-    const workdays = (()=>{let c=0;for(let dd=1;dd<=days;dd++)if(!isWE(dd))c++;return c;})();
-    const pct = workdays > 0 ? Math.round(monthPresent/workdays*100) : 0;
+    const workdays=(()=>{let cnt=0;for(let dd=1;dd<=days;dd++)if(!isWE(dd))cnt++;return cnt;})();
+    const pct=workdays>0?Math.round(monthPresent/workdays*100):0;
+    const pctColor=monthPresent===0?'var(--tx3)':pct<50?'var(--rd)':pct<80?'var(--am)':'var(--gn)';
 
-    // Net hours today
-    let todayH = '';
-    if(a && dep){
-      const mins = toM(dep) - toM(a) - sh.br;
-      if(mins > 0) todayH = Math.floor(mins/60)+'г '+(mins%60>0?mins%60+'хв':'');
+    // Тривалість сьогодні
+    let todayDur='';
+    if(a&&dep){
+      const mins=toM(dep)-toM(a)-sh.br;
+      if(mins>0) todayDur=Math.floor(mins/60)+'г'+(mins%60>0?' '+mins%60+'хв':'');
     }
 
-    return `<div class="mc2" style="animation-delay:${empIdx*0.04}s">
-      <!-- Header -->
-      <div class="mc2-head" style="background:${sCfg.bg}">
-        <div class="mc2-avatar" style="background:${avc.bg};color:${avc.c};border:3px solid ${avc.c}30">${initials}</div>
-        <div class="mc2-info">
-          <div class="mc2-name">${chief?'<span style="color:#f59e0b;font-size:12px">⭐</span> ':''}${emp.name}</div>
-          <div class="mc2-pos">${emp.pos||sh.lbl}</div>
+    // Виходні з можливістю відмітити
+    const isWeekendDay = isWE(d);
+
+    return `<div class="mc2" style="animation-delay:${empIdx*0.03}s">
+      <!-- Шапка -->
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px 8px;background:${sCfg.bg};border-radius:14px 14px 0 0">
+        <div style="width:36px;height:36px;border-radius:50%;background:${avBg};color:${avC};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;border:2px solid ${avC}30">
+          ${chief?'⭐':initials.toUpperCase()}
         </div>
-        <div class="mc2-status" style="background:white;color:${sCfg.c}">
-          <span>${sCfg.dot}</span>
-          <span>${sCfg.label}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${emp.name}</div>
+          <div style="font-size:10px;color:var(--tx3);margin-top:1px">${sh.lbl}${emp.pos?' · '+emp.pos:''}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;background:white;box-shadow:0 1px 4px rgba(0,0,0,.08);flex-shrink:0">
+          <span style="color:${sCfg.dbg};font-size:8px">${sCfg.dot}</span>
+          <span style="font-size:10px;font-weight:700;color:${sCfg.c}">${sCfg.label}</span>
         </div>
       </div>
 
-      <!-- Time row -->
-      <div class="mc2-times">
-        <div class="mc2-time-btn ${canAct&&st!=='va'&&st!=='ab'?'clickable':''}"
-          onclick="${canAct&&st!=='va'&&st!=='ab'?`openTP('${emp.id}',${d},'arrive')`:''}" >
-          <div class="mc2-time-label">↑ Прихід</div>
-          <div class="mc2-time-val ${!a?'mc2-time-empty':''}">${a||'—'}</div>
-          <div class="mc2-time-norm">план ${m2t(sh.s)}</div>
+      <!-- Час -->
+      ${st==='va'?`<div style="padding:10px;text-align:center;font-size:12px;color:var(--va);font-weight:700">🏖 Відпустка</div>`:`
+      ${st==='ab'?`<div style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12px;font-weight:700;color:var(--rd)">Відсутній</span>
+        ${canAct?`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})"
+          style="font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;border:none;background:var(--gnb);color:var(--gn);cursor:pointer">✅ Повернути</button>`:''}
+      </div>`:`
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;padding:6px 10px;gap:6px">
+        <div onclick="${canAct?`openTP('${emp.id}',${d},'arrive')`:'null'}"
+          style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:8px 6px;text-align:center;cursor:${canAct?'pointer':'default'};transition:all .15s"
+          onmouseenter="this.style.background='var(--acl)'" onmouseleave="this.style.background='var(--s1)'">
+          <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:2px">↑ ПРИХІД</div>
+          <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${a?'var(--tx)':'var(--tx3)'}">${a||'—'}</div>
+          <div style="font-size:9px;color:var(--tx3)">план ${m2t(sh.s)}</div>
         </div>
-        <div class="mc2-time-divider">
-          <div class="mc2-time-dur">${todayH||'—'}</div>
-          <div class="mc2-time-dur-lbl">сьогодні</div>
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0 2px">
+          <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:${todayDur?'var(--ac)':'var(--tx3)'}">${todayDur||'—'}</div>
+          <div style="font-size:8px;color:var(--tx3)">сьогодні</div>
         </div>
-        <div class="mc2-time-btn ${canAct&&st!=='va'&&st!=='ab'?'clickable':''}"
-          onclick="${canAct&&st!=='va'&&st!=='ab'?`openTP('${emp.id}',${d},'depart')`:''}" >
-          <div class="mc2-time-label">↓ Вихід</div>
-          <div class="mc2-time-val ${!dep?'mc2-time-empty':''}">${dep||'—'}</div>
-          <div class="mc2-time-norm">план ${m2t(sh.e)}</div>
+        <div onclick="${canAct?`openTP('${emp.id}',${d},'depart')`:'null'}"
+          style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:8px 6px;text-align:center;cursor:${canAct?'pointer':'default'};transition:all .15s"
+          onmouseenter="this.style.background='var(--acl)'" onmouseleave="this.style.background='var(--s1)'">
+          <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:2px">↓ ВИХІД</div>
+          <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${dep?'var(--tx)':'var(--tx3)'}">${dep||'—'}</div>
+          <div style="font-size:9px;color:var(--tx3)">план ${m2t(sh.e)}</div>
         </div>
       </div>
+      `}
+      `}
 
-      <!-- Month mini stats -->
-      <div class="mc2-month">
-        <div class="mc2-progress-wrap">
-          <div class="mc2-progress-bar" style="width:${pct}%;background:${monthAbsent>3?'var(--rd)':monthAbsent>0?'var(--am)':'var(--gn)'}"></div>
+      <!-- Місяць прогрес -->
+      <div style="padding:0 10px 6px">
+        <div style="height:3px;background:var(--s3);border-radius:2px;overflow:hidden;margin-bottom:4px">
+          <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:2px;transition:width .5s"></div>
         </div>
-        <div class="mc2-month-stats">
+        <div style="display:flex;justify-content:space-between;font-size:9px;font-weight:600;color:var(--tx3)">
           <span>✅ ${monthPresent}д</span>
-          <span style="color:var(--tx3)">Місяць ${pct}%</span>
+          <span style="color:${pctColor}">${pct}%</span>
           <span>⏱ ${Math.round(monthH/60)}г</span>
         </div>
       </div>
 
-      <!-- Actions -->
-      ${canAct && st !== 'va' ? `<div class="mc2-actions">
-        ${we && !a ? `<button class="mc2-btn mc2-btn-pres" onclick="setWorkDay('${emp.id}',${d});renderMobileCards(${d})">
-          <span>✅</span> Вийшов на роботу
-        </button>` : ''}
-        <button class="mc2-btn ${st==='ab'?'mc2-btn-pres':'mc2-btn-abs'}"
-          onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})">
-          ${st==='ab'?'<span>✅</span> Позначити присутнім':'<span>🚫</span> Позначити відсутнім'}
-        </button>
-      </div>` : ''}
+      <!-- Кнопки -->
+      ${canAct&&st!=='va'?`<div style="padding:0 10px 8px;display:flex;gap:6px">
+        ${isWeekendDay&&!a?`<button onclick="setWorkDay('${emp.id}',${d});renderMobileCards(${d})"
+          style="flex:1;padding:8px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--gn),#059669);color:#fff;font-size:11px;font-weight:700;cursor:pointer">
+          ✅ Вийшов на роботу</button>`:''}
+        ${st!=='ab'?`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})"
+          style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--rdb2);background:var(--rdb);color:var(--rd);font-size:11px;font-weight:700;cursor:pointer">
+          🚫 Відсутній</button>`:`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})"
+          style="flex:1;padding:8px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--gn),#059669);color:#fff;font-size:11px;font-weight:700;cursor:pointer">
+          ✅ Присутній</button>`}
+      </div>`:''}
     </div>`;
   }).join('');
 }
@@ -4318,6 +4361,28 @@ document.addEventListener('touchend', e=>{
     mobileNavDay(dx < 0 ? 1 : -1);
   }
 }, {passive:true});
+
+// ═══ Дзеркальний скролбар зверху ═══
+function initMirrorScroll(){
+  const wrap = document.getElementById('tableWrap');
+  const top  = document.getElementById('scrollTop');
+  const inner= document.getElementById('scrollTopInner');
+  if(!wrap||!top||!inner) return;
+  // Встановити ширину inner = ширина таблиці
+  function syncWidth(){
+    const tbl = wrap.querySelector('table');
+    if(tbl) inner.style.width = tbl.scrollWidth + 'px';
+  }
+  syncWidth();
+  // Синхронізувати скрол
+  top.addEventListener('scroll', ()=>{ wrap.scrollLeft = top.scrollLeft; });
+  wrap.addEventListener('scroll', ()=>{ top.scrollLeft = wrap.scrollLeft; });
+  // Оновлювати ширину при render
+  const _origRender3 = render;
+  render = function(){ _origRender3(); setTimeout(syncWidth, 50); };
+}
+
+initMirrorScroll();
 </script>
 </body>
 </html>
