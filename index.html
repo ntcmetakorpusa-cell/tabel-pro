@@ -2809,7 +2809,7 @@ function exportFullTabель(){
 // ══════════════════════════════════════════════
 
 // ─── ВСТАВТЕ ВАШ URL GOOGLE APPS SCRIPT ───────
-const GS_URL = 'https://script.google.com/macros/s/AKfycbzY382LgCK3hOy2ykPPQmLCYf4_bcpp8wYds9UfAU0TT8gxtOD3EBuFfo3Dessb-BThJg/exec';
+const GS_URL = 'https://script.google.com/macros/s/AKfycbxCfy06CUz6Ps8tYTWMTz1J4b5furAX3e3j3qgyA7tl9hMpekH3Co6lnfpVCy6HuAjWAA/exec';
 // ──────────────────────────────────────────────
 
 const LS_KEY   = 'tabelPRO_cache_v3';
@@ -2838,7 +2838,17 @@ function loadLocalCache(){
     const d = JSON.parse(raw);
     if(d.DEPTS) DEPTS=d.DEPTS;
     if(d.EMPS)  EMPS=d.EMPS;
-    if(d.ATT)   ATT=d.ATT;
+    // ATT: зливаємо (merge) — не перезаписуємо
+    // щоб не втратити дані відділів які не були відкриті на цьому пристрої
+    if(d.ATT){
+      Object.keys(d.ATT).forEach(k=>{
+        if(!ATT[k]) ATT[k]={};
+        Object.keys(d.ATT[k]).forEach(eid=>{
+          // Сервер головний — беремо його дані
+          ATT[k][eid] = d.ATT[k][eid];
+        });
+      });
+    }
     if(d.PASS)  PASS=d.PASS;
     if(d.EID)   EID=d.EID;
     return true;
@@ -2851,7 +2861,7 @@ function scheduleSave(){
   saveLocalCache();        // кеш — миттєво
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSaveGS, 1500); // GS — через 1.5 сек
+  saveTimer = setTimeout(doSaveGS, 800); // GS — через 0.8 сек
 }
 
 async function doSaveGS(){
@@ -2862,7 +2872,12 @@ async function doSaveGS(){
   setSyncIcon('saving');
   try {
     const ts   = Date.now();
-    const body = JSON.stringify({DEPTS,EMPS,ATT,PASS,EID,CHAT:allChatMessages.slice(-500),ts});
+    // ATT: надсилаємо тільки непорожні ключі
+    const attToSave = {};
+    Object.keys(ATT).forEach(k=>{
+      if(ATT[k] && Object.keys(ATT[k]).length > 0) attToSave[k]=ATT[k];
+    });
+    const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave,PASS,EID,CHAT:allChatMessages.slice(-500),ts});
     const r    = await fetch(GS_URL, {
       method:'POST', redirect:'follow',
       headers:{'Content-Type':'text/plain'}, body
@@ -2898,7 +2913,17 @@ async function loadFromGS(){
     // (сервер = єдине джерело правди)
     if(d.DEPTS) DEPTS=d.DEPTS;
     if(d.EMPS)  EMPS=d.EMPS;
-    if(d.ATT)   ATT=d.ATT;
+    // ATT: зливаємо (merge) — не перезаписуємо
+    // щоб не втратити дані відділів які не були відкриті на цьому пристрої
+    if(d.ATT){
+      Object.keys(d.ATT).forEach(k=>{
+        if(!ATT[k]) ATT[k]={};
+        Object.keys(d.ATT[k]).forEach(eid=>{
+          // Сервер головний — беремо його дані
+          ATT[k][eid] = d.ATT[k][eid];
+        });
+      });
+    }
     if(d.PASS)  PASS=d.PASS;
     if(d.EID)   EID=d.EID;
     // Синхронізувати чат з GS
@@ -2953,7 +2978,7 @@ function startPolling(){
         _lastHash = j.hash;
       }
     } catch(e){ console.warn('Poll error:', e.message); }
-  }, 5000); // кожні 5 секунд секунд
+  }, 3000); // кожні 3 секунди секунд
 }
 
 // ─── Іконка статусу синхронізації ─────────────
@@ -3704,7 +3729,7 @@ function checkNewMessages(){
         chatUnread[m.ch]++;
       });
       const maxId = Math.max(...newMsgs.map(m=>m.id));
-      localStorage.setItem('lastSeenMsgId_'+curRole, String(maxId));
+      setLastSeenId(maxId); // використовуємо єдиний ключ 'chat_lastSeen_'
       saveChatUnread();
       updateChatBadge();
       showChatNotif(newMsgs[newMsgs.length-1]);
