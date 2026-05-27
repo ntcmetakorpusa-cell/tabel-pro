@@ -1529,10 +1529,8 @@ function attKey(di,m,y){return`${di}_${m}_${y}`}
 function getAtt(di,m,y){
   di=di===undefined?curDept:di;m=m||curMonth;y=y||curYear;
   const k=attKey(di,m,y);
-  if(!ATT[k]){
-    ATT[k]={};
-    (EMPS[di]||[]).forEach(emp=>{ATT[k][emp.id]=mkEmpAtt(emp,m,y);});
-  }
+  // Не заповнюємо заводськими — сервер є джерелом правди
+  if(!ATT[k]) ATT[k]={};
   return ATT[k];
 }
 
@@ -2828,6 +2826,8 @@ function saveLocalCache(){
     const payload = {DEPTS,EMPS,ATT,PASS,EID,ts:Date.now()};
     localStorage.setItem(LS_KEY, JSON.stringify(payload));
     localStorage.setItem(LS_TS, String(payload.ts));
+    // Чат зберігається окремо (великий об'єкт)
+    saveChatMsgs();
   } catch(e){}
 }
 
@@ -2862,7 +2862,7 @@ async function doSaveGS(){
   setSyncIcon('saving');
   try {
     const ts   = Date.now();
-    const body = JSON.stringify({DEPTS,EMPS,ATT,PASS,EID,ts});
+    const body = JSON.stringify({DEPTS,EMPS,ATT,PASS,EID,CHAT:allChatMessages.slice(-500),ts});
     const r    = await fetch(GS_URL, {
       method:'POST', redirect:'follow',
       headers:{'Content-Type':'text/plain'}, body
@@ -2901,6 +2901,18 @@ async function loadFromGS(){
     if(d.ATT)   ATT=d.ATT;
     if(d.PASS)  PASS=d.PASS;
     if(d.EID)   EID=d.EID;
+    // Синхронізувати чат з GS
+    if(d.CHAT && Array.isArray(d.CHAT)){
+      const serverMsgs = d.CHAT;
+      const localMsgs  = allChatMessages;
+      // Об'єднати: взяти всі унікальні повідомлення за id
+      const merged = [...serverMsgs];
+      const serverIds = new Set(serverMsgs.map(m=>m.id));
+      localMsgs.forEach(m=>{ if(!serverIds.has(m.id)) merged.push(m); });
+      merged.sort((a,b)=>a.id-b.id);
+      allChatMessages = merged.slice(-500);
+      saveChatMsgs();
+    }
     _lastServerTs = d.ts || Date.now();
     saveLocalCache();
     setSyncIcon('ok');
@@ -2930,6 +2942,11 @@ function startPolling(){
             renderSB(); renderMbar(); render();
             const mv = document.getElementById('mobileView');
             if(mv && mv.style.display !== 'none') renderMobileView();
+            // Оновити чат якщо відкритий
+            if(document.getElementById('chatPanel')?.classList.contains('open')){
+              renderCwSidebar(); renderChatMessages();
+            }
+            updateChatBadge();
             toast('🔄 Оновлено з іншого пристрою');
           }
         }
@@ -3508,6 +3525,8 @@ function sendChat(){
     hideChatTags();
     renderCwSidebar();
     renderChatMessages();
+    // Чат → GS одразу (не через debounce)
+    clearTimeout(saveTimer); saveTimer=setTimeout(doSaveGS,800); setSyncIcon('saving');
     scheduleSave&&scheduleSave();
   } catch(e){ console.error('sendChat error:', e); toast('Помилка надсилання'); }
 }
@@ -3672,51 +3691,25 @@ let _lastKnownCount = 0;
 let _notifTimeout = null;
 
 function checkNewMessages(){
+  // Для міжпристрійного чату — polling GS обробляє оновлення
+  // Локальний polling тільки для швидкого UI update
   try {
-    const stored = JSON.parse(localStorage.getItem('chat_msgs_v3')||'[]');
-
-    // Find messages newer than what we last saw, not sent by us
+    const stored = allChatMessages; // вже синхронізовано через GS polling
     const lastSeenId = parseInt(getLastSeenId()) || 0;
     const newMsgs = stored.filter(m => m.id > lastSeenId && m.role !== curRole);
 
     if(newMsgs.length > 0){
-      // Update allChatMessages
-      allChatMessages = stored;
-
-      // Update lastSeen to newest message
-      const maxId = Math.max(...stored.map(m=>m.id));
-      setLastSeenId(maxId);
-
-      // Process each new message
-      const myChannels = getMyChannels();
-      newMsgs.forEach(msg => {
-        const ch = myChannels.find(c => c.id === msg.ch);
-        if(!ch) return; // not in a channel I can see
-
-        // Increment unread if chat is closed or different channel active
-        const panelOpen = document.getElementById('chatPanel')?.classList.contains('open');
-        const isActiveChannel = msg.ch === activeChatChannel && panelOpen;
-        if(!isActiveChannel){
-          chatUnread[msg.ch] = (chatUnread[msg.ch]||0) + 1;
-          saveChatUnread();
-          showChatNotif(msg, ch);
-        }
+      newMsgs.forEach(m=>{
+        if(!chatUnread[m.ch]) chatUnread[m.ch]=0;
+        chatUnread[m.ch]++;
       });
-
+      const maxId = Math.max(...newMsgs.map(m=>m.id));
+      localStorage.setItem('lastSeenMsgId_'+curRole, String(maxId));
+      saveChatUnread();
       updateChatBadge();
-
-      // Refresh chat panel if open
-      if(document.getElementById('chatPanel')?.classList.contains('open')){
-        renderCwSidebar();
-        renderChatMessages();
-      }
-    } else if(stored.length !== _lastKnownCount){
-      // Messages changed (e.g. cleared) - sync silently
-      allChatMessages = stored;
-      _lastKnownCount = stored.length;
+      showChatNotif(newMsgs[newMsgs.length-1]);
     }
-    _lastKnownCount = stored.length;
-  } catch(e){ console.warn('checkNewMessages error:', e); }
+  } catch(e){}
 }
 
 function showChatNotif(msg, ch){
