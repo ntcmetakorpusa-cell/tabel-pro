@@ -501,7 +501,7 @@ td.cbd-today{background:linear-gradient(to right,var(--pkb),var(--s0) 50%)!impor
   display:flex;align-items:center;gap:3px;padding:3px 8px;
   border-radius:10px;font-size:10px;font-weight:700;
 }
-.mobile-cards{flex:1;overflow-y:auto;padding:10px 12px 24px;-webkit-overflow-scrolling:touch}
+.mobile-cards{flex:1;overflow-y:auto;padding:6px 10px 20px;-webkit-overflow-scrolling:touch}
 .emp-card{
   background:var(--s0);border:1px solid var(--bd);
   border-radius:var(--r16);padding:16px;margin-bottom:10px;
@@ -548,8 +548,8 @@ td.cbd-today{background:linear-gradient(to right,var(--pkb),var(--s0) 50%)!impor
   font-weight:800;font-size:16px;letter-spacing:-.5px;
 }
 .mc2-info{flex:1;min-width:0}
-.mc2-name{font-size:14px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mc2-pos{font-size:11px;color:var(--tx3);margin-top:2px}
+.mc2-name{font-size:13px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc2-pos{font-size:10px;color:var(--tx3);margin-top:1px}
 .mc2-status{
   display:flex;align-items:center;gap:4px;flex-shrink:0;
   padding:4px 10px;border-radius:20px;font-size:10px;font-weight:700;
@@ -567,22 +567,18 @@ td.cbd-today{background:linear-gradient(to right,var(--pkb),var(--s0) 50%)!impor
 .mc2-time-btn.clickable{cursor:pointer}
 .mc2-time-btn.clickable:active{transform:scale(.95);background:var(--acl)}
 .mc2-time-label{font-size:10px;color:var(--tx3);font-weight:600}
-.mc2-time-val{font-size:20px;font-weight:800;font-family:var(--mono);color:var(--tx);line-height:1.1}
+.mc2-time-val{font-size:18px;font-weight:800;font-family:var(--mono);color:var(--tx);line-height:1.1}
 .mc2-time-val.mc2-time-empty{color:var(--tx3);font-size:20px}
 .mc2-time-norm{font-size:9px;color:var(--tx3)}
 .mc2-time-divider{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 8px;gap:2px}
 .mc2-time-dur{font-size:13px;font-weight:700;font-family:var(--mono);color:var(--ac)}
 .mc2-time-dur-lbl{font-size:9px;color:var(--tx3)}
-.mc2-month{padding:0 10px 8px}
+.mc2-month{padding:0 10px 6px}
 .mc2-progress-wrap{height:4px;background:var(--s2);border-radius:2px;overflow:hidden;margin-bottom:5px}
 .mc2-progress-bar{height:100%;border-radius:2px;transition:width .5s ease}
 .mc2-month-stats{display:flex;justify-content:space-between;font-size:10px;font-weight:600;color:var(--tx2)}
-.mc2-actions{padding:0 10px 10px;display:flex;gap:8px}
-.mc2-btn{
-  flex:1;padding:11px 8px;border-radius:var(--r10);border:none;
-  font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;
-  transition:all .15s;min-height:42px;
-}
+.mc2-actions{padding:0 10px 8px;display:flex;gap:6px}
+.mc2-btn{flex:1;padding:9px 8px;border-radius:var(--r8);border:none;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:4px;transition:all .15s;min-height:38px}
 .mc2-btn:active{transform:scale(.97)}
 .mc2-btn-pres{background:linear-gradient(135deg,var(--gn),#059669);color:#fff;box-shadow:0 3px 10px rgba(0,184,113,.3)}
 .mc2-btn-abs{background:var(--rdb);color:var(--rd);border:1px solid var(--rdb2)}
@@ -1712,13 +1708,32 @@ function _completeLogin(role, serverData){
   canEdit = isAdmin || curRole.startsWith('d');
   curDept = curRole.startsWith('d') ? parseInt(curRole.slice(1)) : 0;
 
-  // Якщо сервер повернув дані — застосуємо їх
   if(serverData){
     if(serverData.DEPTS) DEPTS = serverData.DEPTS;
     if(serverData.EMPS)  EMPS  = serverData.EMPS;
-    if(serverData.ATT)   ATT   = serverData.ATT;
     if(serverData.PASS)  PASS  = serverData.PASS;
     if(serverData.EID)   EID   = serverData.EID;
+
+    // ATT: merge замість перезапису
+    if(serverData.ATT){
+      Object.keys(serverData.ATT).forEach(k=>{
+        if(!ATT[k]) ATT[k]={};
+        Object.keys(serverData.ATT[k]).forEach(eid=>{
+          ATT[k][eid] = serverData.ATT[k][eid];
+        });
+      });
+    }
+
+    // CHAT: застосувати повідомлення з сервера
+    if(serverData.CHAT && Array.isArray(serverData.CHAT)){
+      const merged = [...serverData.CHAT];
+      const sIds = new Set(serverData.CHAT.map(m=>m.id));
+      allChatMessages.forEach(m=>{ if(!sIds.has(m.id)) merged.push(m); });
+      merged.sort((a,b)=>a.id-b.id);
+      allChatMessages = merged.slice(-500);
+      saveChatMsgs();
+    }
+
     saveLocalCache();
   }
 
@@ -1764,11 +1779,9 @@ async function initApp(){
     try {
       const gsOk = await loadFromGS();
       if(gsOk){
-        toast('✓ Дані синхронізовано');
         renderSB(); renderMbar(); render();
       } else if(!localLoaded){
         setSyncIcon('offline');
-        toast('Google Sheets не відповідає — перевірте налаштування');
       }
     } catch(e){
       setSyncIcon('error');
@@ -2861,7 +2874,7 @@ function scheduleSave(){
   saveLocalCache();        // кеш — миттєво
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSaveGS, 800); // GS — через 0.8 сек
+  saveTimer = setTimeout(doSaveGS, 500); // GS — через 0.5 сек
 }
 
 async function doSaveGS(){
@@ -2978,7 +2991,7 @@ function startPolling(){
         _lastHash = j.hash;
       }
     } catch(e){ console.warn('Poll error:', e.message); }
-  }, 3000); // кожні 3 секунди секунд
+  }, 2000); // кожні 2 секунди
 }
 
 // ─── Іконка статусу синхронізації ─────────────
