@@ -510,7 +510,7 @@ td.cbd-today{background:linear-gradient(to right,var(--pkb),var(--s0) 50%)!impor
   display:flex;align-items:center;gap:3px;padding:3px 8px;
   border-radius:10px;font-size:10px;font-weight:700;
 }
-.mobile-cards{flex:1;overflow-y:auto;padding:6px 10px 20px;-webkit-overflow-scrolling:touch}
+.mobile-cards{flex:1;overflow-y:auto;padding:4px 8px 16px;-webkit-overflow-scrolling:touch}
 .emp-card{
   background:var(--s0);border:1px solid var(--bd);
   border-radius:var(--r16);padding:16px;margin-bottom:10px;
@@ -2839,7 +2839,7 @@ function exportFullTabель(){
 // ══════════════════════════════════════════════
 
 // ─── ВСТАВТЕ ВАШ URL GOOGLE APPS SCRIPT ───────
-const GS_URL = 'https://script.google.com/macros/s/AKfycbxCfy06CUz6Ps8tYTWMTz1J4b5furAX3e3j3qgyA7tl9hMpekH3Co6lnfpVCy6HuAjWAA/exec';
+const GS_URL = 'https://script.google.com/macros/s/AKfycbzY6Dg2ID_cPu8n-GajkPuYGQNSyxxmhYEEMNcb7n4GawCBY4cmeEEvgSO1iGukIjckDA/exec';
 // ──────────────────────────────────────────────
 
 const LS_KEY   = 'tabelPRO_cache_v3';
@@ -2896,7 +2896,21 @@ function scheduleSave(){
 
 function attToSave(){
   const r={};
-  Object.keys(ATT).forEach(k=>{if(ATT[k]&&Object.keys(ATT[k]).length>0) r[k]=ATT[k];});
+  Object.keys(ATT).forEach(k=>{
+    if(!ATT[k]) return;
+    const empData={};
+    Object.keys(ATT[k]).forEach(eid=>{
+      const ea=ATT[k][eid];
+      if(!ea) return;
+      // Відправляємо тільки якщо є реальні дані (не пустий об'єкт)
+      const hasData = (ea.arrive && Object.keys(ea.arrive).length>0) ||
+                      (ea.depart && Object.keys(ea.depart).length>0) ||
+                      (ea.absent && Object.keys(ea.absent).length>0) ||
+                      (ea.vacation && Object.keys(ea.vacation).length>0);
+      if(hasData) empData[eid]=ea;
+    });
+    if(Object.keys(empData).length>0) r[k]=empData;
+  });
   return r;
 }
 
@@ -2984,54 +2998,44 @@ async function loadFromGS(){
 function startPolling(){
   if(!gsEnabled) return;
   let _lastHash = '';
+  let _chatLastId = Math.max(0, ...allChatMessages.map(m=>m.id));
 
-  // Окремий polling ТІЛЬКИ для чату — кожну секунду
-  // Так повідомлення з'являються одразу
-  setInterval(async ()=>{
-    if(isSyncing) return;
-    try {
-      const r = await fetch(GS_URL+'?action=load',{method:'GET',redirect:'follow'});
-      const j = JSON.parse(await r.text());
-      if(j.ok && j.data && j.data.CHAT && Array.isArray(j.data.CHAT)){
-        const serverChat = j.data.CHAT;
-        const localIds   = new Set(allChatMessages.map(m=>m.id));
-        const newMsgs    = serverChat.filter(m=>!localIds.has(m.id));
-        if(newMsgs.length > 0){
-          allChatMessages = [...allChatMessages, ...newMsgs].sort((a,b)=>a.id-b.id).slice(-500);
-          saveChatMsgs();
-          // Оновити UI чату
-          if(document.getElementById('chatPanel')?.classList.contains('open') ||
-             document.querySelector('.chat-window.open')){
-            renderCwSidebar(); renderChatMessages();
-          }
-          updateChatBadge();
-          checkNewMessages();
-        }
-      }
-    } catch(e){}
-  }, 2000); // chat polling кожні 2 сек
-
-  // Polling ATT/табелю — кожні 3 сек
+  // Єдиний polling — кожні 2 сек перевіряє hash
+  // Якщо змінився — завантажує все включно з чатом
   setInterval(async ()=>{
     if(isSyncing || saveTimer) return;
     try {
       const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
-      if(j.ok && j.hash && j.hash !== _lastHash){
+      if(!j.ok) return;
+      const newHash = j.hash || '';
+      if(newHash && newHash !== _lastHash){
         if(_lastHash !== ''){
+          // Є зміни — завантажуємо
           const ok = await loadFromGS();
           if(ok){
+            // Перевірити чи є нові повідомлення чату
+            const newChatMaxId = Math.max(0, ...allChatMessages.map(m=>m.id));
+            if(newChatMaxId > _chatLastId){
+              _chatLastId = newChatMaxId;
+              if(document.getElementById('chatPanel')?.classList.contains('open') ||
+                 document.querySelector('.chat-window.open')){
+                renderCwSidebar(); renderChatMessages();
+              }
+              updateChatBadge();
+              checkNewMessages();
+            }
+            // Оновити табель
             renderSB(); renderMbar(); render();
             const mv = document.getElementById('mobileView');
             if(mv && mv.style.display !== 'none') renderMobileView();
           }
         }
-        _lastHash = j.hash;
+        _lastHash = newHash;
       }
-    } catch(e){ console.warn('Poll error:', e.message); }
-  }, 3000); // ATT polling кожні 3 сек
+    } catch(e){ console.warn('Poll:', e.message); }
+  }, 2000);
 }
-
 // ─── Іконка статусу синхронізації ─────────────
 function setSyncIcon(status){
   const map={
@@ -3602,8 +3606,9 @@ function sendChat(){
     renderCwSidebar();
     renderChatMessages();
     // Чат → GS за 300мс (окремо від основного debounce)
-    // Відправляємо в GS одразу (без debounce для чату)
-    doSaveGS();
+    // Зберегти чат в GS (невелика затримка щоб UI відрендерив)
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSaveGS, 100);
   } catch(e){ console.error('sendChat error:', e); toast('Помилка надсилання'); }
 }
 
@@ -4081,6 +4086,8 @@ function renderMobileCards(d){
     em: {label:'Не відмічено',bg:'var(--s2)',c:'var(--tx3)',dot:'○',dbg:'var(--tx3)'},
   };
 
+  // Адаптивний розмір — чим більше людей, тим компактніше
+  const compact = emps.length > 4;
   el.innerHTML = emps.map((emp, empIdx) => {
     if(!att[emp.id]) att[emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
     const ea  = att[emp.id];
@@ -4128,8 +4135,8 @@ function renderMobileCards(d){
 
     return `<div class="mc2" style="animation-delay:${empIdx*0.03}s">
       <!-- Шапка -->
-      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px 8px;background:${sCfg.bg};border-radius:14px 14px 0 0">
-        <div style="width:36px;height:36px;border-radius:50%;background:${avBg};color:${avC};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;border:2px solid ${avC}30">
+      <div style="display:flex;align-items:center;gap:8px;padding:${compact?'7px 10px 6px':'10px 12px 8px'};background:${sCfg.bg};border-radius:14px 14px 0 0">
+        <div style="width:${compact?'30px':'36px'};height:${compact?'30px':'36px'};border-radius:50%;background:${avBg};color:${avC};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${compact?'10px':'12px'};flex-shrink:0;border:2px solid ${avC}30">
           ${chief?'⭐':initials.toUpperCase()}
         </div>
         <div style="flex:1;min-width:0">
@@ -4154,7 +4161,7 @@ function renderMobileCards(d){
           style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:8px 6px;text-align:center;cursor:${canAct?'pointer':'default'};transition:all .15s"
           onmouseenter="this.style.background='var(--acl)'" onmouseleave="this.style.background='var(--s1)'">
           <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:2px">↑ ПРИХІД</div>
-          <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${a?'var(--tx)':'var(--tx3)'}">${a||'—'}</div>
+          <div style="font-size:${compact?'15px':'17px'};font-weight:800;font-family:var(--mono);color:${a?'var(--tx)':'var(--tx3)'}">${a||'—'}</div>
           <div style="font-size:9px;color:var(--tx3)">план ${m2t(sh.s)}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0 2px">
@@ -4165,7 +4172,7 @@ function renderMobileCards(d){
           style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:8px 6px;text-align:center;cursor:${canAct?'pointer':'default'};transition:all .15s"
           onmouseenter="this.style.background='var(--acl)'" onmouseleave="this.style.background='var(--s1)'">
           <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:2px">↓ ВИХІД</div>
-          <div style="font-size:17px;font-weight:800;font-family:var(--mono);color:${dep?'var(--tx)':'var(--tx3)'}">${dep||'—'}</div>
+          <div style="font-size:${compact?'15px':'17px'};font-weight:800;font-family:var(--mono);color:${dep?'var(--tx)':'var(--tx3)'}">${dep||'—'}</div>
           <div style="font-size:9px;color:var(--tx3)">план ${m2t(sh.e)}</div>
         </div>
       </div>
