@@ -1797,6 +1797,7 @@ function _completeLogin(role, serverData){
   _myLastHash = '';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'flex';
+    _myLastHash = ''; // скинути щоб polling одразу отримав нові дані
   initApp();
 }
 
@@ -2959,7 +2960,7 @@ function scheduleSave(){
   saveLocalCache();
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSaveGS, 500);
+  saveTimer = setTimeout(doSaveGS, 300); // швидкий debounce
 }
 
 // Фільтрує пусті записи ATT перед відправкою в GS
@@ -2986,68 +2987,36 @@ function attToSave(){
 async function doSaveGS(){
   saveTimer = null;
   if(!gsEnabled){ setSyncIcon('offline'); return; }
-  if(isSyncing){ saveTimer=setTimeout(doSaveGS,2000); return; }
+  if(isSyncing){ saveTimer=setTimeout(doSaveGS,1000); return; }
   isSyncing = true;
   setSyncIcon('saving');
   try {
-    // КРОК 1: Завантажити актуальний стан з GS
-    // і злити з нашими локальними змінами ПЕРЕД відправкою
-    try {
-      const rLoad = await fetch(_effectiveGsUrl+'?action=load',{method:'GET',redirect:'follow'});
-      const jLoad = JSON.parse(await rLoad.text());
-      if(jLoad.ok && jLoad.data && jLoad.data.ATT){
-        // Merge: для кожного eid/дня — якщо у нас є дані → наші
-        //        якщо у нас немає → беремо з сервера
-        const srvATT = jLoad.data.ATT;
-        Object.keys(srvATT).forEach(k=>{
-          if(!ATT[k]) ATT[k]={};
-          Object.keys(srvATT[k]).forEach(eid=>{
-            const srv = srvATT[k][eid];
-            if(!srv) return;
-            if(!ATT[k][eid]){
-              ATT[k][eid]=srv; // У нас немає — беремо з сервера
-              return;
-            }
-            const loc = ATT[k][eid];
-            // Merge по днях: якщо локальний день порожній → беремо серверний
-            ['arrive','depart','absent','vacation'].forEach(field=>{
-              if(!srv[field]) return;
-              if(!loc[field]) loc[field]={};
-              Object.keys(srv[field]).forEach(day=>{
-                if(!loc[field][day]) loc[field][day]=srv[field][day];
-              });
-            });
-          });
-        });
-        // Merge CHAT з сервером
-        if(jLoad.data.CHAT && Array.isArray(jLoad.data.CHAT)){
-          const sIds=new Set(allChatMessages.map(m=>m.id));
-          jLoad.data.CHAT.forEach(m=>{ if(!sIds.has(m.id)) allChatMessages.push(m); });
-          allChatMessages.sort((a,b)=>a.id-b.id);
-          allChatMessages=allChatMessages.slice(-500);
-        }
-      }
-    } catch(loadErr){ /* продовжуємо навіть якщо не змогли завантажити */ }
-
-    // КРОК 2: Відправити злиті дані в GS
     const ts   = Date.now();
-    const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave(),PASS,EID,CHAT:allChatMessages.slice(-500),ts});
-    const r = await fetch(_effectiveGsUrl,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body});
+    const body = JSON.stringify({
+      DEPTS, EMPS, ATT:attToSave(), PASS, EID,
+      CHAT:allChatMessages.slice(-500), ts
+    });
+    const r = await fetch(_effectiveGsUrl, {
+      method:'POST', redirect:'follow',
+      headers:{'Content-Type':'text/plain'}, body
+    });
     const j = JSON.parse(await r.text());
     if(j.ok){
-      _myLastHash = j.ts || String(ts);
+      _myLastHash = String(j.ts||ts);
       saveLocalCache();
       setSyncIcon('ok');
     } else {
       setSyncIcon('error');
-      saveTimer = setTimeout(doSaveGS, 5000);
+      saveTimer = setTimeout(doSaveGS, 3000);
     }
   } catch(e){
     setSyncIcon('error');
-    saveTimer = setTimeout(doSaveGS, 5000);
-  } finally { isSyncing=false; }
+    saveTimer = setTimeout(doSaveGS, 3000);
+    console.warn('doSaveGS error:', e.message);
+  } finally {
+    isSyncing = false;
+  }
 }
-
 // ─── Завантажити з GS ─────────────────────────
 async function loadFromGS(){
   if(!gsEnabled) return false;
@@ -3091,10 +3060,13 @@ async function loadFromGS(){
       saveChatMsgs();
     }
 
+    // Запам'ятати timestamp останніх завантажених даних
+    if(d.ts) _myLastHash = String(d.ts);
     saveLocalCache();
     setSyncIcon('ok');
     return true;
   } catch(e){
+    console.warn('loadFromGS error:', e.message);
     setSyncIcon('error');
     return false;
   }
@@ -3105,40 +3077,41 @@ function startPolling(){
   if(!gsEnabled) return;
 
   setInterval(async ()=>{
-    // Не опитувати якщо йде збереження
-    if(isSyncing || saveTimer) return;
+    // Не опитувати тільки якщо ми зараз зберігаємо
+    if(isSyncing) return;
 
     try {
-      const r = await fetch(_effectiveGsUrl+'?action=hash',{method:'GET',redirect:'follow'});
+      const r = await fetch(_effectiveGsUrl+'?action=hash', {
+        method:'GET', redirect:'follow'
+      });
       const j = JSON.parse(await r.text());
       if(!j.ok) return;
 
-      const serverHash = j.hash || j.ts || '';
-      if(!serverHash) return;
+      const serverHash = String(j.hash||j.ts||'');
+      if(!serverHash || serverHash === _myLastHash) return;
 
-      // Якщо hash == наш останній збережений — це наші власні дані, не завантажувати
-      if(serverHash === _myLastHash) return;
-
-      // Hash змінився — є нові дані
+      // Є нові дані від іншого пристрою
       _myLastHash = serverHash;
+      console.log('[Табель] Нові дані з GS, завантажую...');
 
-      // Завантажуємо завжди коли hash відрізняється
       const ok = await loadFromGS();
       if(ok){
         renderSB(); renderMbar(); render();
         const mv = document.getElementById('mobileView');
         if(mv && mv.style.display !== 'none') renderMobileView();
-        // Оновити чат якщо відкритий
         if(document.querySelector('.chat-window.open') ||
            document.getElementById('chatPanel')?.classList.contains('open')){
-          renderCwSidebar(); renderChatMessages();
+          renderCwSidebar();
+          renderChatMessages();
         }
         updateChatBadge();
+        console.log('[Табель] Оновлено!');
       }
-    } catch(e){}
-  }, 3000); // кожні 3 секунди
+    } catch(e){
+      console.warn('[Табель] Poll error:', e.message);
+    }
+  }, 1500); // кожні 1.5 секунди
 }
-
 // ─── Іконка ───────────────────────────────────
 function setSyncIcon(status){
   const map={
