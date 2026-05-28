@@ -2864,27 +2864,26 @@ function exportFullTabель(){
 // СИНХРОНІЗАЦІЯ — Google Sheets як єдине сховище
 // ══════════════════════════════════════════════
 
-// ─── ВСТАВТЕ ВАШ URL GOOGLE APPS SCRIPT ───────
-const GS_URL = 'https://script.google.com/macros/s/AKfycbzY6Dg2ID_cPu8n-GajkPuYGQNSyxxmhYEEMNcb7n4GawCBY4cmeEEvgSO1iGukIjckDA/exec';
-// ──────────────────────────────────────────────
+const GS_URL  = 'https://script.google.com/macros/s/AKfycbzY6Dg2ID_cPu8n-GajkPuYGQNSyxxmhYEEMNcb7n4GawCBY4cmeEEvgSO1iGukIjckDA/exec';
+const LS_KEY  = 'tabelPRO_cache_v3';
+const LS_TS   = 'tabelPRO_ts';
 
-const LS_KEY   = 'tabelPRO_cache_v3';
-const LS_TS    = 'tabelPRO_ts';
+let gsEnabled    = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
+let isSyncing    = false;
+let saveTimer    = null;
 
-let gsEnabled  = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
-let isSyncing  = false;
-let saveTimer  = null;
-let _lastServerTs = 0; // timestamp останнього завантаження з сервера
+// Хеш останнього УСПІШНОГО збереження/завантаження
+// Використовується щоб polling не реагував на власні зміни
+let _myLastHash  = '';
 
-// ─── Локальний кеш (швидкий старт) ────────────
+// ─── Кеш ──────────────────────────────────────
 function saveLocalCache(){
   try {
-    const payload = {DEPTS,EMPS,ATT,PASS,EID,ts:Date.now()};
-    localStorage.setItem(LS_KEY, JSON.stringify(payload));
-    localStorage.setItem(LS_TS, String(payload.ts));
-    // Чат зберігається окремо (великий об'єкт)
-    saveChatMsgs();
+    const d = {DEPTS,EMPS,ATT,PASS,EID,ts:Date.now()};
+    localStorage.setItem(LS_KEY, JSON.stringify(d));
+    localStorage.setItem(LS_TS, String(d.ts));
   } catch(e){}
+  try { saveChatMsgs(); } catch(e){}
 }
 
 function loadLocalCache(){
@@ -2894,32 +2893,28 @@ function loadLocalCache(){
     const d = JSON.parse(raw);
     if(d.DEPTS) DEPTS=d.DEPTS;
     if(d.EMPS)  EMPS=d.EMPS;
-    // ATT: зливаємо (merge) — не перезаписуємо
-    // щоб не втратити дані відділів які не були відкриті на цьому пристрої
+    if(d.PASS)  PASS=d.PASS;
+    if(d.EID)   EID=d.EID;
     if(d.ATT){
       Object.keys(d.ATT).forEach(k=>{
         if(!ATT[k]) ATT[k]={};
-        Object.keys(d.ATT[k]).forEach(eid=>{
-          // Сервер головний — беремо його дані
-          ATT[k][eid] = d.ATT[k][eid];
-        });
+        Object.keys(d.ATT[k]).forEach(eid=>{ ATT[k][eid]=d.ATT[k][eid]; });
       });
     }
-    if(d.PASS)  PASS=d.PASS;
-    if(d.EID)   EID=d.EID;
     return true;
   } catch(e){ return false; }
 }
 
-// ─── Зберегти в Google Sheets ─────────────────
-// Викликається після КОЖНОЇ зміни з невеликою затримкою
+// ─── Зберегти в GS ────────────────────────────
 function scheduleSave(){
-  saveLocalCache();        // кеш — миттєво
+  saveLocalCache();
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSaveGS, 500); // GS — через 0.5 сек
+  saveTimer = setTimeout(doSaveGS, 500);
 }
 
+// Фільтрує пусті записи ATT перед відправкою в GS
+// Це критично! Без цього пусті {} перезаписують реальні дані
 function attToSave(){
   const r={};
   Object.keys(ATT).forEach(k=>{
@@ -2928,11 +2923,10 @@ function attToSave(){
     Object.keys(ATT[k]).forEach(eid=>{
       const ea=ATT[k][eid];
       if(!ea) return;
-      // Відправляємо тільки якщо є реальні дані (не пустий об'єкт)
-      const hasData = (ea.arrive && Object.keys(ea.arrive).length>0) ||
-                      (ea.depart && Object.keys(ea.depart).length>0) ||
-                      (ea.absent && Object.keys(ea.absent).length>0) ||
-                      (ea.vacation && Object.keys(ea.vacation).length>0);
+      const hasData=(ea.arrive&&Object.keys(ea.arrive).length>0)||
+                    (ea.depart&&Object.keys(ea.depart).length>0)||
+                    (ea.absent&&Object.keys(ea.absent).length>0)||
+                    (ea.vacation&&Object.keys(ea.vacation).length>0);
       if(hasData) empData[eid]=ea;
     });
     if(Object.keys(empData).length>0) r[k]=empData;
@@ -2949,14 +2943,12 @@ async function doSaveGS(){
   try {
     const ts   = Date.now();
     const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave(),PASS,EID,CHAT:allChatMessages.slice(-500),ts});
-    const r    = await fetch(GS_URL, {
-      method:'POST', redirect:'follow',
-      headers:{'Content-Type':'text/plain'}, body
-    });
+    const r = await fetch(GS_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body});
     const j = JSON.parse(await r.text());
     if(j.ok){
-      _lastServerTs = ts;
-      localStorage.setItem('_lastSavedTs', String(ts));
+      // Запам'ятати hash після НАШОГО збереження
+      // щоб polling не реагував на власні зміни
+      _myLastHash = j.ts || String(ts);
       saveLocalCache();
       setSyncIcon('ok');
     } else {
@@ -2966,11 +2958,10 @@ async function doSaveGS(){
   } catch(e){
     setSyncIcon('error');
     saveTimer = setTimeout(doSaveGS, 5000);
-    console.warn('GS save:', e.message);
   } finally { isSyncing=false; }
 }
 
-// ─── Завантажити з Google Sheets ──────────────
+// ─── Завантажити з GS ─────────────────────────
 async function loadFromGS(){
   if(!gsEnabled) return false;
   try {
@@ -2980,98 +2971,99 @@ async function loadFromGS(){
     const j = JSON.parse(await r.text());
     if(!j.ok || !j.data) return false;
     const d = j.data;
-    // Завжди беремо дані з сервера при завантаженні
-    // (сервер = єдине джерело правди)
+
     if(d.DEPTS) DEPTS=d.DEPTS;
     if(d.EMPS)  EMPS=d.EMPS;
-    // ATT: зливаємо (merge) — не перезаписуємо
-    // щоб не втратити дані відділів які не були відкриті на цьому пристрої
+    if(d.PASS)  PASS=d.PASS;
+    if(d.EID)   EID=d.EID;
+
+    // Merge ATT — не перезаписувати, а зливати
     if(d.ATT){
       Object.keys(d.ATT).forEach(k=>{
         if(!ATT[k]) ATT[k]={};
         Object.keys(d.ATT[k]).forEach(eid=>{
-          // Сервер головний — беремо його дані
-          ATT[k][eid] = d.ATT[k][eid];
+          const newEa = d.ATT[k][eid];
+          if(!newEa) return;
+          const hasData = (newEa.arrive&&Object.keys(newEa.arrive).length>0)||
+                          (newEa.depart&&Object.keys(newEa.depart).length>0)||
+                          (newEa.absent&&Object.keys(newEa.absent).length>0)||
+                          (newEa.vacation&&Object.keys(newEa.vacation).length>0);
+          if(hasData) ATT[k][eid]=newEa;
         });
       });
     }
-    if(d.PASS)  PASS=d.PASS;
-    if(d.EID)   EID=d.EID;
-    // Синхронізувати чат з GS
+
+    // Merge CHAT
     if(d.CHAT && Array.isArray(d.CHAT)){
-      const serverMsgs = d.CHAT;
-      const localMsgs  = allChatMessages;
-      // Об'єднати: взяти всі унікальні повідомлення за id
-      const merged = [...serverMsgs];
-      const serverIds = new Set(serverMsgs.map(m=>m.id));
-      localMsgs.forEach(m=>{ if(!serverIds.has(m.id)) merged.push(m); });
-      merged.sort((a,b)=>a.id-b.id);
-      allChatMessages = merged.slice(-500);
+      const sIds = new Set(d.CHAT.map(m=>m.id));
+      const local = allChatMessages.filter(m=>!sIds.has(m.id));
+      allChatMessages = [...d.CHAT,...local].sort((a,b)=>a.id-b.id).slice(-500);
       saveChatMsgs();
     }
-    _lastServerTs = d.ts || Date.now();
+
     saveLocalCache();
     setSyncIcon('ok');
     return true;
   } catch(e){
-    console.warn('GS load:', e.message);
+    setSyncIcon('error');
     return false;
   }
 }
 
-// ─── Polling: перевіряти зміни кожні 10 сек ───
-// Завдяки цьому всі пристрої бачать зміни одночасно
+// ─── Polling — тільки для ЧУЖИХ змін ──────────
 function startPolling(){
   if(!gsEnabled) return;
-  let _lastHash = '';
-  let _chatLastId = Math.max(0, ...allChatMessages.map(m=>m.id));
 
-  // Єдиний polling — кожні 2 сек перевіряє hash
-  // Якщо змінився — завантажує все включно з чатом
   setInterval(async ()=>{
+    // Не опитувати якщо йде збереження
     if(isSyncing || saveTimer) return;
+
     try {
       const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
       if(!j.ok) return;
-      const newHash = j.hash || '';
-      if(newHash && newHash !== _lastHash){
-        if(_lastHash !== ''){
-          // Є зміни — завантажуємо
-          const ok = await loadFromGS();
-          if(ok){
-            // Перевірити чи є нові повідомлення чату
-            const newChatMaxId = Math.max(0, ...allChatMessages.map(m=>m.id));
-            if(newChatMaxId > _chatLastId){
-              _chatLastId = newChatMaxId;
-              if(document.getElementById('chatPanel')?.classList.contains('open') ||
-                 document.querySelector('.chat-window.open')){
-                renderCwSidebar(); renderChatMessages();
-              }
-              updateChatBadge();
-              checkNewMessages();
-            }
-            // Оновити табель
-            renderSB(); renderMbar(); render();
-            const mv = document.getElementById('mobileView');
-            if(mv && mv.style.display !== 'none') renderMobileView();
-          }
-        }
-        _lastHash = newHash;
+
+      const serverHash = j.hash || j.ts || '';
+      if(!serverHash) return;
+
+      // Якщо hash == наш останній збережений — це наші власні дані, не завантажувати
+      if(serverHash === _myLastHash) return;
+
+      // Є зміни від ІНШОГО пристрою — завантажуємо
+      const prevHash = _myLastHash;
+      _myLastHash = serverHash; // одразу оновити щоб не завантажувати двічі
+
+      if(prevHash === '') {
+        // Перший polling — просто запам'ятати hash
+        return;
       }
-    } catch(e){ console.warn('Poll:', e.message); }
-  }, 2000);
+
+      const ok = await loadFromGS();
+      if(ok){
+        renderSB(); renderMbar(); render();
+        const mv = document.getElementById('mobileView');
+        if(mv && mv.style.display !== 'none') renderMobileView();
+        // Оновити чат якщо відкритий
+        if(document.querySelector('.chat-window.open') ||
+           document.getElementById('chatPanel')?.classList.contains('open')){
+          renderCwSidebar(); renderChatMessages();
+        }
+        updateChatBadge();
+      }
+    } catch(e){}
+  }, 3000); // кожні 3 секунди
 }
-// ─── Іконка статусу синхронізації ─────────────
+
+// ─── Іконка ───────────────────────────────────
 function setSyncIcon(status){
   const map={
     loading:{ico:'🔄',tip:'Завантаження...'},
     saving: {ico:'🟡',tip:'Зберігається...'},
-    ok:     {ico:'🟢',tip:'Збережено в Google Sheets'},
+    ok:     {ico:'🟢',tip:'Збережено'},
     error:  {ico:'🔴',tip:'Помилка. Натисніть для повтору.'},
-    offline:{ico:'⚪',tip:'Google Sheets не підключено'},
+    offline:{ico:'⚪',tip:'Офлайн'},
   };
-  const s = map[status]||map.offline;
+  const s=map[status]||map.offline;
   ['syncIcon','syncIconD'].forEach(id=>{
     const el=document.getElementById(id);
     if(!el) return;
@@ -3080,7 +3072,6 @@ function setSyncIcon(status){
   });
 }
 
-// Псевдоніми для сумісності
 function saveToGS(){ return doSaveGS(); }
 function saveLocal(){ saveLocalCache(); }
 function loadLocal(){ return loadLocalCache(); }
