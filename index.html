@@ -368,19 +368,22 @@ input,select,textarea{font-family:var(--font)}
 .tw{
   background:var(--s0);border:1px solid var(--bd);border-radius:var(--r16);
   overflow:auto;box-shadow:var(--sh1);
-  /* Подвійний скролбар — зверху і знизу */
-  display:flex;flex-direction:column;
 }
-.tw table{flex:1}
-/* Mirror scrollbar at top */
-.tw-scroll-top{
-  overflow-x:auto;overflow-y:hidden;height:16px;
-  border-bottom:1px solid var(--bd);
+/* Скролбар зверху — синхронізований дзеркальний */
+.scroll-mirror{
+  overflow-x:auto;overflow-y:hidden;
+  height:12px;
+  background:var(--s1);
+  border:1px solid var(--bd);
+  border-radius:var(--r8) var(--r8) 0 0;
+  border-bottom:none;
+  cursor:ew-resize;
 }
-.tw-scroll-top-inner{height:1px}
+.scroll-mirror-inner{height:1px;pointer-events:none}
 table{border-collapse:collapse;width:max-content;min-width:100%}
 thead th{position:sticky;top:0;z-index:10;background:var(--s1)}
-th.nc,td.nc{position:sticky;left:0;z-index:12;background:var(--s1)}
+th.nc,td.nc{position:sticky;left:0;background:var(--s1)}
+th.nc{z-index:13} /* Кут: і top і left sticky */
 td.nc{z-index:6;background:var(--s0)}
 tr:hover td.nc{background:var(--s2)}
 
@@ -1099,8 +1102,8 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 </div>
 
 <div class="ta" style="display:none" id="desktopTable">
-      <div class="tw" id="tableWrap">
-      <div class="tw-scroll-top" id="scrollTop"><div class="tw-scroll-top-inner" id="scrollTopInner"></div></div>
+      <div class="scroll-mirror" id="scrollMirror" style="margin-bottom:0;border-radius:var(--r8) var(--r8) 0 0"><div class="scroll-mirror-inner" id="scrollMirrorInner"></div></div>
+      <div class="tw" id="tableWrap" style="border-top-left-radius:0;border-top-right-radius:0">
         <table><thead id="thead"></thead><tbody id="tbody"></tbody></table>
       </div>
     </div>
@@ -4368,22 +4371,42 @@ document.addEventListener('touchend', e=>{
 
 // ═══ Дзеркальний скролбар зверху ═══
 function initMirrorScroll(){
-  const wrap = document.getElementById('tableWrap');
-  const top  = document.getElementById('scrollTop');
-  const inner= document.getElementById('scrollTopInner');
-  if(!wrap||!top||!inner) return;
-  // Встановити ширину inner = ширина таблиці
+  const wrap  = document.getElementById('tableWrap');
+  const mirror= document.getElementById('scrollMirror');
+  const inner = document.getElementById('scrollMirrorInner');
+  if(!wrap||!mirror||!inner) return;
+
   function syncWidth(){
     const tbl = wrap.querySelector('table');
-    if(tbl) inner.style.width = tbl.scrollWidth + 'px';
+    if(tbl){
+      inner.style.width = tbl.scrollWidth + 'px';
+      // Ширина mirror = ширина wrap (видима частина)
+      mirror.style.width = wrap.offsetWidth + 'px';
+    }
   }
   syncWidth();
-  // Синхронізувати скрол
-  top.addEventListener('scroll', ()=>{ wrap.scrollLeft = top.scrollLeft; });
-  wrap.addEventListener('scroll', ()=>{ top.scrollLeft = wrap.scrollLeft; });
+
+  let _syncingTop = false, _syncingBot = false;
+  mirror.addEventListener('scroll', ()=>{
+    if(_syncingBot) return;
+    _syncingTop = true;
+    wrap.scrollLeft = mirror.scrollLeft;
+    setTimeout(()=>_syncingTop=false, 50);
+  });
+  wrap.addEventListener('scroll', ()=>{
+    if(_syncingTop) return;
+    _syncingBot = true;
+    mirror.scrollLeft = wrap.scrollLeft;
+    setTimeout(()=>_syncingBot=false, 50);
+  });
+
   // Оновлювати ширину при render
   const _origRender3 = render;
-  render = function(){ _origRender3(); setTimeout(syncWidth, 50); };
+  render = function(){
+    _origRender3();
+    setTimeout(syncWidth, 50);
+  };
+  window.addEventListener('resize', syncWidth);
 }
 
 initMirrorScroll();
