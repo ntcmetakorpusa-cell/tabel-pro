@@ -369,6 +369,8 @@ input,select,textarea{font-family:var(--font)}
   background:var(--s0);border:1px solid var(--bd);border-radius:0 0 var(--r16) var(--r16);
   overflow:auto;box-shadow:var(--sh1);
   flex:1;min-height:0;
+  /* Sticky потребує обмеженої висоти контейнера */
+  height:0;
 }
 /* Скролбар зверху — синхронізований дзеркальний */
 .scroll-mirror{
@@ -383,10 +385,31 @@ input,select,textarea{font-family:var(--font)}
 }
 .scroll-mirror-inner{height:1px;pointer-events:none}
 table{border-collapse:collapse;width:max-content;min-width:100%}
-thead th{position:sticky;top:0;z-index:10;background:var(--s1);box-shadow:0 2px 4px rgba(0,0,0,.06)}
-th.nc,td.nc{position:sticky;left:0;background:var(--s1)}
-th.nc{z-index:15;box-shadow:2px 2px 4px rgba(0,0,0,.06)} /* Кут: і top і left sticky */
-td.nc{z-index:6;background:var(--s0);box-shadow:2px 0 4px rgba(0,0,0,.04)}
+
+/* === STICKY COLUMNS & HEADER === */
+thead th{
+  position:sticky;top:0;z-index:10;
+  background:var(--s1);
+  box-shadow:0 2px 4px rgba(0,0,0,.08);
+}
+th.nc{
+  position:sticky;left:0;top:0;
+  z-index:20; /* найвищий — кут таблиці */
+  background:var(--s1);
+  text-align:left;padding-left:18px;
+  min-width:175px;width:175px;
+  border-right:1px solid var(--bd);
+  box-shadow:2px 2px 6px rgba(0,0,0,.08);
+}
+td.nc{
+  position:sticky;left:0;
+  z-index:6;
+  background:var(--s0);
+  padding:10px 12px 10px 18px;
+  border-right:1px solid var(--bd);
+  vertical-align:middle;min-width:175px;
+  box-shadow:2px 0 4px rgba(0,0,0,.05);
+}
 tr:hover td.nc{background:var(--s2)}
 
 th{
@@ -394,11 +417,11 @@ th{
   text-align:center;border-bottom:2px solid var(--bd);
   text-transform:uppercase;letter-spacing:.4px;
 }
-th.nc{text-align:left;padding-left:18px;min-width:175px;width:175px;border-right:1px solid var(--bd)}
+
 th.dc{min-width:88px;width:88px}
 th.sc2{min-width:144px;width:144px;background:var(--s2);border-left:2px solid var(--bd2);position:sticky;right:0;z-index:13;box-shadow:-2px 0 8px rgba(0,0,0,.06)}
 td{padding:0;border-bottom:1px solid var(--bd);vertical-align:top}
-td.nc{padding:10px 12px 10px 18px;border-right:1px solid var(--bd);vertical-align:middle;min-width:175px}
+
 td.summary-td{border-left:2px solid var(--bd2);background:var(--s2)!important;vertical-align:middle;position:sticky;right:0;z-index:7;box-shadow:-2px 0 8px rgba(0,0,0,.06)}
 tr:last-child td{border-bottom:none}
 tbody tr{transition:background .1s}
