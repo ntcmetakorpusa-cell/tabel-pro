@@ -486,7 +486,7 @@ td.cbd-today{background:linear-gradient(to right,var(--pkb),var(--s0) 50%)!impor
   padding:10px 14px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;
 }
 .mobile-day-nav{display:flex;align-items:center;gap:10px}
-.mobile-day-label{font-size:17px;font-weight:800;color:var(--tx)}
+.mobile-day-label{font-size:18px;font-weight:900;color:var(--tx);letter-spacing:-.5px}
 .mobile-day-sub{font-size:11px;color:var(--tx3);margin-top:1px}
 .day-nav-btn{
   width:34px;height:34px;border-radius:var(--r10);border:1px solid var(--bd);
@@ -1558,10 +1558,11 @@ function mkEmpAtt(emp,m,y){
 }
 
 function cellSt(emp,ea,d){
-  if(ea.vacation&&ea.vacation[d])return'va';
-  if(ea.absent&&ea.absent[d])return'ab';
-  // weekends can now be edited too
-  const a=toM(ea.arrive[d]),dep=toM(ea.depart[d]);
+  if(!ea) return 'em';
+  const _vac=ea.vacation||{}, _ab=ea.absent||{}, _ar=ea.arrive||{}, _dep=ea.depart||{};
+  if(_vac[d])return'va';
+  if(_ab[d])return'ab';
+  const a=toM(_ar[d]),dep=toM(_dep[d]);
   if(isWE(d)&&!a&&!dep)return'we';
   if(a===null&&dep===null)return'em';
   const sh=getEmpShift(emp);
@@ -1576,10 +1577,12 @@ function stCls(st){
 }
 
 function netM(emp,ea,d){
-  if(ea.vacation&&ea.vacation[d])return getEmpShift(emp).norm; // vacation = full day credited
+  if(!ea) return 0;
+  const _v=ea.vacation||{},_ar=ea.arrive||{},_dep=ea.depart||{},_ab=ea.absent||{};
+  if(_v[d]) return getEmpShift(emp).norm;
+  const a=toM(_ar[d]),dep=toM(_dep[d]);
+  if(!a||!dep||_ab[d]) return 0;
   const sh=getEmpShift(emp);
-  const a=toM(ea.arrive[d]),dep=toM(ea.depart[d]);
-  if(!a||!dep||(ea.absent&&ea.absent[d]))return 0;
   return Math.max(0,dep-a-sh.br);
 }
 
@@ -2891,6 +2894,12 @@ function scheduleSave(){
   saveTimer = setTimeout(doSaveGS, 500); // GS — через 0.5 сек
 }
 
+function attToSave(){
+  const r={};
+  Object.keys(ATT).forEach(k=>{if(ATT[k]&&Object.keys(ATT[k]).length>0) r[k]=ATT[k];});
+  return r;
+}
+
 async function doSaveGS(){
   saveTimer = null;
   if(!gsEnabled){ setSyncIcon('offline'); return; }
@@ -2899,12 +2908,7 @@ async function doSaveGS(){
   setSyncIcon('saving');
   try {
     const ts   = Date.now();
-    // ATT: надсилаємо тільки непорожні ключі
-    const attToSave = {};
-    Object.keys(ATT).forEach(k=>{
-      if(ATT[k] && Object.keys(ATT[k]).length > 0) attToSave[k]=ATT[k];
-    });
-    const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave,PASS,EID,CHAT:allChatMessages.slice(-500),ts});
+    const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave(),PASS,EID,CHAT:allChatMessages.slice(-500),ts});
     const r    = await fetch(GS_URL, {
       method:'POST', redirect:'follow',
       headers:{'Content-Type':'text/plain'}, body
@@ -3577,9 +3581,10 @@ function sendChat(){
     hideChatTags();
     renderCwSidebar();
     renderChatMessages();
-    // Чат → GS одразу (не через debounce)
-    clearTimeout(saveTimer); saveTimer=setTimeout(doSaveGS,800); setSyncIcon('saving');
-    scheduleSave&&scheduleSave();
+    // Чат → GS за 300мс (окремо від основного debounce)
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSaveGS, 300);
+    setSyncIcon('saving');
   } catch(e){ console.error('sendChat error:', e); toast('Помилка надсилання'); }
 }
 
