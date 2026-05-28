@@ -391,10 +391,10 @@ th{
 }
 th.nc{text-align:left;padding-left:18px;min-width:175px;width:175px;border-right:1px solid var(--bd)}
 th.dc{min-width:88px;width:88px}
-th.sc2{min-width:144px;width:144px;background:var(--s2);border-left:2px solid var(--bd2);position:sticky;right:0;z-index:11}
+th.sc2{min-width:144px;width:144px;background:var(--s2);border-left:2px solid var(--bd2);position:sticky;right:0;z-index:13;box-shadow:-2px 0 8px rgba(0,0,0,.06)}
 td{padding:0;border-bottom:1px solid var(--bd);vertical-align:top}
 td.nc{padding:10px 12px 10px 18px;border-right:1px solid var(--bd);vertical-align:middle;min-width:175px}
-td.summary-td{border-left:2px solid var(--bd2);background:var(--s2)!important;vertical-align:middle;position:sticky;right:0;z-index:5}
+td.summary-td{border-left:2px solid var(--bd2);background:var(--s2)!important;vertical-align:middle;position:sticky;right:0;z-index:7;box-shadow:-2px 0 8px rgba(0,0,0,.06)}
 tr:last-child td{border-bottom:none}
 tbody tr{transition:background .1s}
 
@@ -2055,7 +2055,7 @@ function quickAdd(){
   const emp={id:gid(),name,shift:'8',bday:'',phone:'',pos:'',vacStart:'',vacEnd:'',vacOk:false};
   if(!EMPS[curDept])EMPS[curDept]=[];
   EMPS[curDept].push(emp);
-  for(let m=1;m<=12;m++){const k=attKey(curDept,m,curYear);if(ATT[k])ATT[k][emp.id]=mkEmpAtt(emp,m,curYear);}
+  for(let m=1;m<=12;m++){const k=attKey(curDept,m,curYear);if(!ATT[k])ATT[k]={};if(!ATT[k][emp.id])ATT[k][emp.id]={arrive:{},depart:{},absent:{},vacation:{}};}
   inp.value='';renderSB();renderMbar();render();toast('✓ Додано: '+name);
 }
 
@@ -2184,7 +2184,7 @@ function saveDeptEd(){
     for(let m=1;m<=12;m++){
       const k=attKey(curDept,m,curYear);
       if(!ATT[k])ATT[k]={};
-      if(!ATT[k][emp.id])ATT[k][emp.id]=mkEmpAtt(emp,m,curYear);
+      if(!ATT[k][emp.id])if(!ATT[k][emp.id])ATT[k][emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
     }
   });
   EMPS[curDept]=deEmps;
@@ -2286,7 +2286,7 @@ function aeAddEmp(){
   const emp={id:gid(),name,shift:'8',bday:'',phone:'',pos:'',vacStart:'',vacEnd:'',vacOk:false};
   if(!EMPS[aeDi])EMPS[aeDi]=[];
   EMPS[aeDi].push(emp);
-  for(let m=1;m<=12;m++){const k=attKey(aeDi,m,curYear);if(!ATT[k])ATT[k]={};ATT[k][emp.id]=mkEmpAtt(emp,m,curYear);}
+  for(let m=1;m<=12;m++){const k=attKey(aeDi,m,curYear);if(!ATT[k])ATT[k]={};if(!ATT[k][emp.id])ATT[k][emp.id]={arrive:{},depart:{},absent:{},vacation:{}};}
   document.getElementById('aeNewEmp').value='';aeRender();
   if(aeDi===curDept){renderSB();renderMbar();render();}toast('✓ Додано');
 }
@@ -2344,8 +2344,7 @@ function saveEmp(){
     // Always rebuild ATT (shift or custom times may have changed)
     for(let m=1;m<=12;m++){
       const k=attKey(curDept,m,curYear);
-      if(!ATT[k]) getAtt(curDept,m,curYear);
-      ATT[k][emp.id]=mkEmpAtt(emp,m,curYear);
+      if(!ATT[k])ATT[k]={};if(!ATT[k][emp.id])ATT[k][emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
     }
     closeOv('empOv');renderDeList();
     renderSB();renderMbar();render();
@@ -2378,8 +2377,7 @@ function saveEmp(){
   if(needRebuild){
     for(let m=1;m<=12;m++){
       const k=attKey(targetDi,m,curYear);
-      if(!ATT[k]) getAtt(targetDi,m,curYear);
-      ATT[k][emp.id]=mkEmpAtt(emp,m,curYear);
+      if(!ATT[k])ATT[k]={};if(!ATT[k][emp.id])ATT[k][emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
     }
   } else {
     for(let m=1;m<=12;m++){
@@ -4065,142 +4063,117 @@ function renderMobileCards(d){
   const emps = getSortedEmps(curDept);
   const att  = getAtt();
   const days = dim(curMonth, curYear);
-
   if(!emps.length){
-    el.innerHTML=`<div style="text-align:center;padding:3rem 1rem">
-      <div style="font-size:48px;margin-bottom:12px">👥</div>
-      <div style="font-size:15px;font-weight:700;color:var(--tx2)">Немає співробітників</div>
-    </div>`;
+    el.innerHTML='<div style="text-align:center;padding:40px 20px"><div style="font-size:40px">👥</div><div style="margin-top:8px;font-size:14px;color:var(--tx3)">Немає співробітників</div></div>';
     return;
   }
-
   const we = isWE(d);
-  const statusCfg = {
-    ok: {label:'Вчасно',      bg:'#e8fdf4', c:'#00a85a', dot:'●', dbg:'#00a85a'},
-    la: {label:'Запізнення',  bg:'#fff8e6', c:'#d97706', dot:'●', dbg:'#d97706'},
-    ea: {label:'Рано пішов',  bg:'#fff4ed', c:'#ea6c00', dot:'●', dbg:'#ea6c00'},
-    ab: {label:'Відсутній',   bg:'#fff0f0', c:'#dc2626', dot:'●', dbg:'#dc2626'},
-    ov: {label:'Надурочно',   bg:'#eff6ff', c:'#2563eb', dot:'●', dbg:'#2563eb'},
-    we: {label:'Вихідний',    bg:'var(--s2)',c:'var(--tx3)',dot:'○',dbg:'var(--tx3)'},
-    va: {label:'Відпустка',   bg:'#f5f3ff', c:'#7c3aed', dot:'●', dbg:'#7c3aed'},
-    em: {label:'Не відмічено',bg:'var(--s2)',c:'var(--tx3)',dot:'○',dbg:'var(--tx3)'},
+
+  // Адаптивний розмір
+  const compact = emps.length > 4;
+  const vpad    = compact ? '7px' : '10px';
+  const hpad    = compact ? '10px' : '12px';
+  const avSize  = compact ? '32px' : '38px';
+  const avFont  = compact ? '11px' : '13px';
+  const timeFS  = compact ? '15px' : '18px';
+  const nameFS  = compact ? '12px' : '13px';
+  const btnPad  = compact ? '7px 10px' : '9px 12px';
+  const btnFS   = compact ? '11px' : '12px';
+  const mb      = compact ? '5px' : '8px';
+
+  const STATUS = {
+    ok:{l:'Вчасно',     bg:'#eafaf3',c:'#00a05a',bc:'#b8ecd4'},
+    la:{l:'Запізнення', bg:'#fff8e6',c:'#c97a00',bc:'#fdd97e'},
+    ea:{l:'Рано пішов', bg:'#fff4ed',c:'#c85a00',bc:'#fbba8c'},
+    ab:{l:'Відсутній',  bg:'#fef2f2',c:'#dc2626',bc:'#fca5a5'},
+    ov:{l:'Надурочно',  bg:'#eff6ff',c:'#1d4ed8',bc:'#93c5fd'},
+    we:{l:'Вихідний',   bg:'var(--s2)',c:'var(--tx3)',bc:'var(--bd)'},
+    va:{l:'Відпустка',  bg:'#f5f3ff',c:'#6d28d9',bc:'#c4b5fd'},
+    em:{l:'—',          bg:'var(--s1)',c:'var(--tx3)',bc:'var(--bd)'},
   };
 
-  // Адаптивний розмір — чим більше людей, тим компактніше
-  const compact = emps.length > 4;
-  el.innerHTML = emps.map((emp, empIdx) => {
+  el.innerHTML = emps.map((emp, idx) => {
     if(!att[emp.id]) att[emp.id]={arrive:{},depart:{},absent:{},vacation:{}};
-    const ea  = att[emp.id];
-    const sh  = getEmpShift(emp);
-    const st  = cellSt(emp, ea, d);
-    const a   = (ea.arrive||{})[d] || '';
-    const dep = (ea.depart||{})[d] || '';
+    const ea    = att[emp.id];
+    const sh    = getEmpShift(emp);
+    const st    = cellSt(emp, ea, d);
+    const a     = (ea.arrive||{})[d]||'';
+    const dep   = (ea.depart||{})[d]||'';
     const chief = isChief(emp);
-    const canAct = canEdit && !isHR;
-    const sCfg = statusCfg[st] || statusCfg.em;
+    const canAct= canEdit && !isHR;
+    const S     = STATUS[st]||STATUS.em;
 
     // Ініціали
-    const parts = emp.name.trim().split(/\s+/);
-    const initials = (parts[0]?.[0]||'') + (parts[1]?.[0]||'');
+    const parts    = emp.name.trim().split(/\s+/);
+    const initials = ((parts[0]||'')[0]||'').toUpperCase() + ((parts[1]||'')[0]||'').toUpperCase();
 
-    // Кольори аватара по імені
-    const colors=[
-      ['#e0f2fe','#0369a1'],['#f0fdf4','#15803d'],['#fdf4ff','#7e22ce'],
-      ['#fff7ed','#c2410c'],['#fdf2f8','#be185d'],['#f0fdf4','#166534'],
-      ['#eff6ff','#1d4ed8'],['#fefce8','#92400e'],['#f5f3ff','#5b21b6'],
-    ];
-    const [avBg, avC] = colors[emp.name.charCodeAt(0) % colors.length];
+    // Кольори аватара
+    const pal=[['#dbeafe','#1e40af'],['#d1fae5','#065f46'],['#ede9fe','#4c1d95'],
+               ['#fce7f3','#831843'],['#fff7ed','#9a3412'],['#fef9c3','#713f12'],
+               ['#e0f2fe','#0c4a6e'],['#f0fdf4','#14532d'],['#fdf4ff','#581c87']];
+    const [ab,ac] = pal[emp.name.charCodeAt(0)%pal.length];
 
-    // Місячна статистика
-    let monthPresent=0, monthH=0;
+    // Місяць
+    let mP=0,mH=0;
     for(let dd=1;dd<=days;dd++){
-      const _a=(ea.arrive||{}), _d=(ea.depart||{});
-      if(isWE(dd)&&!(_a[dd]||_d[dd])) continue;
+      const _a=ea.arrive||{},_d=ea.depart||{};
+      if(isWE(dd)&&!_a[dd]&&!_d[dd]) continue;
       const ss=cellSt(emp,ea,dd);
-      if(ss!=='ab'&&ss!=='em'&&ss!=='we'){ monthPresent++; monthH+=netM(emp,ea,dd); }
+      if(ss!=='ab'&&ss!=='em'&&ss!=='we'){mP++;mH+=netM(emp,ea,dd);}
     }
-    const workdays=(()=>{let cnt=0;for(let dd=1;dd<=days;dd++)if(!isWE(dd))cnt++;return cnt;})();
-    const pct=workdays>0?Math.round(monthPresent/workdays*100):0;
-    const pctColor=monthPresent===0?'var(--tx3)':pct<50?'var(--rd)':pct<80?'var(--am)':'var(--gn)';
+    const wd=(()=>{let n=0;for(let dd=1;dd<=days;dd++)if(!isWE(dd))n++;return n;})();
+    const pct=wd>0?Math.round(mP/wd*100):0;
+    const pColor=mP===0?'var(--bd2)':pct<50?'var(--rd)':pct<80?'var(--am)':'var(--gn)';
 
-    // Тривалість сьогодні
-    let todayDur='';
-    if(a&&dep){
-      const mins=toM(dep)-toM(a)-sh.br;
-      if(mins>0) todayDur=Math.floor(mins/60)+'г'+(mins%60>0?' '+mins%60+'хв':'');
-    }
+    // Тривалість
+    let dur='';
+    if(a&&dep){const m=toM(dep)-toM(a)-sh.br;if(m>0)dur=Math.floor(m/60)+'г'+(m%60?' '+m%60+'хв':'');}
 
-    // Виходні з можливістю відмітити
-    const isWeekendDay = isWE(d);
-
-    return `<div class="mc2" style="animation-delay:${empIdx*0.03}s">
+    return `<div style="background:var(--s0);border:1px solid var(--bd);border-radius:12px;margin-bottom:${mb};overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)" >
       <!-- Шапка -->
-      <div style="display:flex;align-items:center;gap:8px;padding:${compact?'7px 10px 6px':'10px 12px 8px'};background:${sCfg.bg};border-radius:14px 14px 0 0">
-        <div style="width:${compact?'30px':'36px'};height:${compact?'30px':'36px'};border-radius:50%;background:${avBg};color:${avC};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${compact?'10px':'12px'};flex-shrink:0;border:2px solid ${avC}30">
-          ${chief?'⭐':initials.toUpperCase()}
+      <div style="display:flex;align-items:center;gap:8px;padding:${vpad} ${hpad};background:${S.bg};border-bottom:1px solid ${S.bc}">
+        <div style="width:${avSize};height:${avSize};border-radius:50%;background:${ab};color:${ac};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:${avFont};flex-shrink:0">
+          ${chief?'⭐':initials}
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${emp.name}</div>
-          <div style="font-size:10px;color:var(--tx3);margin-top:1px">${sh.lbl}${emp.pos?' · '+emp.pos:''}</div>
+          <div style="font-size:${nameFS};font-weight:700;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${emp.name}</div>
+          <div style="font-size:10px;color:${S.c};font-weight:600;margin-top:1px">${S.l} · ${sh.lbl}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;background:white;box-shadow:0 1px 4px rgba(0,0,0,.08);flex-shrink:0">
-          <span style="color:${sCfg.dbg};font-size:8px">${sCfg.dot}</span>
-          <span style="font-size:10px;font-weight:700;color:${sCfg.c}">${sCfg.label}</span>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:10px;color:var(--tx3)">${mP}/${wd}д · ${Math.round(mH/60)}г</div>
+          <div style="height:3px;width:50px;background:var(--bd);border-radius:2px;margin-top:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${pColor};border-radius:2px"></div></div>
         </div>
       </div>
 
-      <!-- Час -->
-      ${st==='va'?`<div style="padding:10px;text-align:center;font-size:12px;color:var(--va);font-weight:700">🏖 Відпустка</div>`:`
-      ${st==='ab'?`<div style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">
-        <span style="font-size:12px;font-weight:700;color:var(--rd)">Відсутній</span>
-        ${canAct?`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})"
-          style="font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;border:none;background:var(--gnb);color:var(--gn);cursor:pointer">✅ Повернути</button>`:''}
+      ${st==='va'?`<div style="padding:${vpad} ${hpad};font-size:12px;color:#6d28d9;font-weight:600">🏖 Відпустка</div>`:`
+      ${st==='ab'?`<div style="display:flex;align-items:center;justify-content:space-between;padding:${vpad} ${hpad}">
+        <span style="font-size:12px;font-weight:700;color:var(--rd)">🚫 Відсутній</span>
+        ${canAct?`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})" style="padding:5px 12px;border-radius:8px;border:none;background:var(--gnb);color:var(--gn);font-size:11px;font-weight:700;cursor:pointer">✅ Повернути</button>`:''}
       </div>`:`
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;padding:6px 10px;gap:6px">
-        <div onclick="${canAct?`openTP('${emp.id}',${d},'arrive')`:'null'}"
-          style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:8px 6px;text-align:center;cursor:${canAct?'pointer':'default'};transition:all .15s"
-          onmouseenter="this.style.background='var(--acl)'" onmouseleave="this.style.background='var(--s1)'">
-          <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:2px">↑ ПРИХІД</div>
-          <div style="font-size:${compact?'15px':'17px'};font-weight:800;font-family:var(--mono);color:${a?'var(--tx)':'var(--tx3)'}">${a||'—'}</div>
-          <div style="font-size:9px;color:var(--tx3)">план ${m2t(sh.s)}</div>
+      <!-- Час -->
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;padding:6px ${hpad};gap:6px;align-items:center">
+        <div onclick="${canAct?`openTP('${emp.id}',${d},'arrive')`:''}" style="background:var(--s1);border:1px solid var(--bd);border-radius:8px;padding:6px 4px;text-align:center;cursor:${canAct?'pointer':'default'}">
+          <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:1px">↑ ПРИХІД</div>
+          <div style="font-size:${timeFS};font-weight:800;font-family:var(--mono);color:${a?'var(--tx)':'var(--tx3)'}">${a||'—'}</div>
+          <div style="font-size:9px;color:var(--tx3)">${m2t(sh.s)}</div>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0 2px">
-          <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:${todayDur?'var(--ac)':'var(--tx3)'}">${todayDur||'—'}</div>
+        <div style="text-align:center">
+          <div style="font-size:11px;font-weight:700;font-family:var(--mono);color:${dur?'var(--ac)':'var(--tx3)'}">${dur||'—'}</div>
           <div style="font-size:8px;color:var(--tx3)">сьогодні</div>
         </div>
-        <div onclick="${canAct?`openTP('${emp.id}',${d},'depart')`:'null'}"
-          style="background:var(--s1);border:1px solid var(--bd);border-radius:10px;padding:8px 6px;text-align:center;cursor:${canAct?'pointer':'default'};transition:all .15s"
-          onmouseenter="this.style.background='var(--acl)'" onmouseleave="this.style.background='var(--s1)'">
-          <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:2px">↓ ВИХІД</div>
-          <div style="font-size:${compact?'15px':'17px'};font-weight:800;font-family:var(--mono);color:${dep?'var(--tx)':'var(--tx3)'}">${dep||'—'}</div>
-          <div style="font-size:9px;color:var(--tx3)">план ${m2t(sh.e)}</div>
+        <div onclick="${canAct?`openTP('${emp.id}',${d},'depart')`:''}" style="background:var(--s1);border:1px solid var(--bd);border-radius:8px;padding:6px 4px;text-align:center;cursor:${canAct?'pointer':'default'}">
+          <div style="font-size:9px;color:var(--tx3);font-weight:600;margin-bottom:1px">↓ ВИХІД</div>
+          <div style="font-size:${timeFS};font-weight:800;font-family:var(--mono);color:${dep?'var(--tx)':'var(--tx3)'}">${dep||'—'}</div>
+          <div style="font-size:9px;color:var(--tx3)">${m2t(sh.e)}</div>
         </div>
       </div>
       `}
       `}
-
-      <!-- Місяць прогрес -->
-      <div style="padding:0 10px 6px">
-        <div style="height:3px;background:var(--s3);border-radius:2px;overflow:hidden;margin-bottom:4px">
-          <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:2px;transition:width .5s"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:9px;font-weight:600;color:var(--tx3)">
-          <span>✅ ${monthPresent}д</span>
-          <span style="color:${pctColor}">${pct}%</span>
-          <span>⏱ ${Math.round(monthH/60)}г</span>
-        </div>
-      </div>
 
       <!-- Кнопки -->
-      ${canAct&&st!=='va'?`<div style="padding:0 10px 8px;display:flex;gap:6px">
-        ${isWeekendDay&&!a?`<button onclick="setWorkDay('${emp.id}',${d});renderMobileCards(${d})"
-          style="flex:1;padding:8px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--gn),#059669);color:#fff;font-size:11px;font-weight:700;cursor:pointer">
-          ✅ Вийшов на роботу</button>`:''}
-        ${st!=='ab'?`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})"
-          style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--rdb2);background:var(--rdb);color:var(--rd);font-size:11px;font-weight:700;cursor:pointer">
-          🚫 Відсутній</button>`:`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})"
-          style="flex:1;padding:8px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--gn),#059669);color:#fff;font-size:11px;font-weight:700;cursor:pointer">
-          ✅ Присутній</button>`}
+      ${canAct&&st!=='va'?`<div style="display:flex;gap:6px;padding:0 ${hpad} ${vpad}">
+        ${we&&!a?`<button onclick="setWorkDay('${emp.id}',${d});renderMobileCards(${d})" style="flex:1;padding:${btnPad};border-radius:8px;border:none;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:${btnFS};font-weight:700;cursor:pointer">✅ Вийшов</button>`:''}
+        ${st!=='ab'?`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})" style="flex:1;padding:${btnPad};border-radius:8px;border:1px solid var(--rdb2);background:var(--rdb);color:var(--rd);font-size:${btnFS};font-weight:700;cursor:pointer">🚫 Відсутній</button>`:`<button onclick="togAbs('${emp.id}',${d});renderMobileCards(${d})" style="flex:1;padding:${btnPad};border-radius:8px;border:none;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:${btnFS};font-weight:700;cursor:pointer">✅ Присутній</button>`}
       </div>`:''}
     </div>`;
   }).join('');
