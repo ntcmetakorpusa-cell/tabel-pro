@@ -1870,7 +1870,7 @@ function calcStats(di,m,y){
     const sh=getEmpShift(emp);
     norm+=wd*sh.norm;
     for(let d=1;d<=days;d++){
-      if(isWE(d,m,y)&&!(ea.arrive[d]||ea.depart[d]))continue;
+      if(isWE(d,m,y)&&!((ea.arrive||{})[d]||(ea.depart||{})[d]))continue;
       const st=cellSt(emp,ea,d);
       if(st==='ab'){abs++;continue;}
       if(st==='va')continue;
@@ -1927,7 +1927,7 @@ function render(){
     // calc summary
     let presDay=0,presH=0,absC=0,ovC=0,vacC=0;
     for(let d=1;d<=days;d++){
-      if(isWE(d)&&!(ea.arrive[d]||ea.depart[d]))continue;
+      if(isWE(d)&&!((ea.arrive||{})[d]||(ea.depart||{})[d]))continue;
       const st=cellSt(emp,ea,d);
       if(st==='ab')absC++;
       else if(st==='va'){vacC++;presDay++;}
@@ -1975,8 +1975,8 @@ function cellHTML(emp,ea,st,d){
   if(st==='va')return`<div class="cell"><span class="vac-lbl">🏖 Відпустка</span></div>`;
   if(st==='ab')return`<div class="cell"><span class="abs-lbl">Відсутній</span>${!ro?`<button class="abt on" onclick="togAbs('${eid}',${d})">Скасувати</button>`:''}</div>`;
   const isWd=isWE(d);
-  const a=ea.arrive[d]||'';
-  const dep=ea.depart[d]||'';
+  const a=(ea.arrive||{})[d]||'';
+  const dep=(ea.depart||{})[d]||'';
   const sh=getEmpShift(emp);
   let badge='';
   if(st==='la'){const v=(toM(a)||sh.s)-sh.s;badge=`<span class="badge bl">${fmtDiff(v)}</span>`;}
@@ -2028,8 +2028,8 @@ function togAbs(eid,d){
   ea.absent[d]=!ea.absent[d];
   const emp=(EMPS[curDept]||[]).find(e=>e.id===eid);
   const sh=getEmpShift(emp);
-  if(ea.absent[d]){ea.arrive[d]='';ea.depart[d]='';}
-  else{ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);}
+  if(ea.absent[d]){(ea.arrive||{})[d]='';(ea.depart||{})[d]='';}
+  else{(ea.arrive||{})[d]=m2t(sh.s);(ea.depart||{})[d]=m2t(sh.e);}
   refreshCell(eid,d);renderStats();renderMbar();render();scheduleSave();
 }
 
@@ -2039,7 +2039,7 @@ function setWorkDay(eid,d){
   const ea=att[eid];
   const emp=(EMPS[curDept]||[]).find(e=>e.id===eid);
   const sh=getEmpShift(emp);
-  ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);
+  (ea.arrive||{})[d]=m2t(sh.s);(ea.depart||{})[d]=m2t(sh.e);
   ea.absent=ea.absent||{};ea.absent[d]=false;
   refreshCell(eid,d);renderStats();scheduleSave();
 }
@@ -2112,7 +2112,7 @@ function tpConfirm(){
   if(!att[tpEid])att[tpEid]={arrive:{},depart:{},absent:{},vacation:{}};
   const ea=att[tpEid];
   ea.arrive=ea.arrive||{};ea.depart=ea.depart||{};
-  if(tpFld==='arrive')ea.arrive[tpDay]=val;else ea.depart[tpDay]=val;
+  if(tpFld==='arrive')(ea.arrive||{})[tpDay]=val;else (ea.depart||{})[tpDay]=val;
   tpClose();refreshCell(tpEid,tpDay);renderStats();scheduleSave();
 }
 function tpClose(){document.getElementById('tpOv').classList.remove('open');}
@@ -2400,10 +2400,10 @@ function applyVacation(emp,ea,m,y){
   ea.vacation=ea.vacation||{};
   for(let d=1;d<=days;d++){
     if(isVacDay(emp,d,m,y)&&emp.vacOk){
-      ea.vacation[d]=true;ea.arrive[d]='';ea.depart[d]='';
+      ea.vacation[d]=true;(ea.arrive||{})[d]='';(ea.depart||{})[d]='';
     } else if(ea.vacation[d]&&!isVacDay(emp,d,m,y)){
       ea.vacation[d]=false;
-      if(!isWE(d,m,y)){const sh=getEmpShift(emp);ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);}
+      if(!isWE(d,m,y)){const sh=getEmpShift(emp);(ea.arrive||{})[d]=m2t(sh.s);(ea.depart||{})[d]=m2t(sh.e);}
     }
   }
 }
@@ -2448,7 +2448,7 @@ function cancelVacation(){
   // remove vacation days
   for(let m=1;m<=12;m++){
     const k=attKey(edDi,m,curYear);
-    if(ATT[k]){const ea=ATT[k][emp.id];if(ea){ea.vacation={};const days=dim(m,curYear);const sh=getEmpShift(emp);for(let d=1;d<=days;d++){if(!isWE(d,m,curYear)&&!ea.arrive[d]){ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);}}}}
+    if(ATT[k]){const ea=ATT[k][emp.id];if(ea){ea.vacation={};const days=dim(m,curYear);const sh=getEmpShift(emp);for(let d=1;d<=days;d++){if(!isWE(d,m,curYear)&&!(ea.arrive||{})[d]){(ea.arrive||{})[d]=m2t(sh.s);(ea.depart||{})[d]=m2t(sh.e);}}}}
   }
   document.getElementById('edVacStart').value='';
   document.getElementById('edVacEnd').value='';
@@ -2483,7 +2483,7 @@ function showReport(){
     const ea=att[emp.id]||mkEmpAtt(emp);const sh=getEmpShift(emp);
     let abs=0,lt=0,ot=0,net=0,wd=0,vac=0;
     for(let d=1;d<=days;d++){
-      if(isWE(d)&&!(ea.arrive&&ea.arrive[d]))continue;
+      if(isWE(d)&&!(ea.arrive&&(ea.arrive||{})[d]))continue;
       wd++;
       const st=cellSt(emp,ea,d);
       if(st==='ab'){abs++;continue;}
@@ -2531,7 +2531,7 @@ function showHRReport(){
       const ea=att[emp.id]||mkEmpAtt(emp,curMonth,curYear);const sh=getEmpShift(emp);
       let abs=0,lt=0,net=0;
       for(let d=1;d<=days;d++){
-        if(isWE(d,curMonth,curYear)&&!(ea.arrive&&ea.arrive[d]))continue;
+        if(isWE(d,curMonth,curYear)&&!(ea.arrive&&(ea.arrive||{})[d]))continue;
         const st=cellSt(emp,ea,d);
         if(st==='ab'){abs++;continue;}
         if(st==='la')lt++;net+=netM(emp,ea,d);
@@ -2664,15 +2664,15 @@ ${w}`);
 
     for(let d = 1; d <= days; d++){
       const st = cellSt(emp, ea, d);
-      if(st === 'we' && !(ea.arrive && ea.arrive[d])){
+      if(st === 'we' && !(ea.arrive && (ea.arrive||{})[d])){
         row.push('—');
       } else if(st === 'ab'){
         row.push('Відс.'); absC++;
       } else if(st === 'va'){
         row.push('Відпустка'); vacC++; presDay++;
       } else {
-        const a = (ea.arrive && ea.arrive[d]) || '';
-        const dep = (ea.depart && ea.depart[d]) || '';
+        const a = (ea.arrive && (ea.arrive||{})[d]) || '';
+        const dep = (ea.depart && (ea.depart||{})[d]) || '';
         if(!a && !dep){ row.push(''); continue; }
         const cell = a && dep ? `${a}–${dep}` : a || dep;
         row.push(cell);
@@ -2984,32 +2984,52 @@ async function loadFromGS(){
 function startPolling(){
   if(!gsEnabled) return;
   let _lastHash = '';
+
+  // Окремий polling ТІЛЬКИ для чату — кожну секунду
+  // Так повідомлення з'являються одразу
+  setInterval(async ()=>{
+    if(isSyncing) return;
+    try {
+      const r = await fetch(GS_URL+'?action=load',{method:'GET',redirect:'follow'});
+      const j = JSON.parse(await r.text());
+      if(j.ok && j.data && j.data.CHAT && Array.isArray(j.data.CHAT)){
+        const serverChat = j.data.CHAT;
+        const localIds   = new Set(allChatMessages.map(m=>m.id));
+        const newMsgs    = serverChat.filter(m=>!localIds.has(m.id));
+        if(newMsgs.length > 0){
+          allChatMessages = [...allChatMessages, ...newMsgs].sort((a,b)=>a.id-b.id).slice(-500);
+          saveChatMsgs();
+          // Оновити UI чату
+          if(document.getElementById('chatPanel')?.classList.contains('open') ||
+             document.querySelector('.chat-window.open')){
+            renderCwSidebar(); renderChatMessages();
+          }
+          updateChatBadge();
+          checkNewMessages();
+        }
+      }
+    } catch(e){}
+  }, 2000); // chat polling кожні 2 сек
+
+  // Polling ATT/табелю — кожні 3 сек
   setInterval(async ()=>{
     if(isSyncing || saveTimer) return;
     try {
       const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
-      // Використовуємо hash — більш надійно ніж timestamp
       if(j.ok && j.hash && j.hash !== _lastHash){
         if(_lastHash !== ''){
-          // Є зміни від іншого пристрою — завантажуємо
           const ok = await loadFromGS();
           if(ok){
             renderSB(); renderMbar(); render();
             const mv = document.getElementById('mobileView');
             if(mv && mv.style.display !== 'none') renderMobileView();
-            // Оновити чат якщо відкритий
-            if(document.getElementById('chatPanel')?.classList.contains('open')){
-              renderCwSidebar(); renderChatMessages();
-            }
-            updateChatBadge();
-            toast('🔄 Оновлено з іншого пристрою');
           }
         }
         _lastHash = j.hash;
       }
     } catch(e){ console.warn('Poll error:', e.message); }
-  }, 2000); // кожні 2 секунди
+  }, 3000); // ATT polling кожні 3 сек
 }
 
 // ─── Іконка статусу синхронізації ─────────────
@@ -3582,9 +3602,8 @@ function sendChat(){
     renderCwSidebar();
     renderChatMessages();
     // Чат → GS за 300мс (окремо від основного debounce)
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(doSaveGS, 300);
-    setSyncIcon('saving');
+    // Відправляємо в GS одразу (без debounce для чату)
+    doSaveGS();
   } catch(e){ console.error('sendChat error:', e); toast('Помилка надсилання'); }
 }
 
@@ -3880,7 +3899,7 @@ render = function(){
 
     let presDay=0,presH=0,absC=0,ovC=0,vacC=0;
     for(let d=1;d<=days;d++){
-      if(isWE(d)&&!(ea.arrive[d]||ea.depart[d])) continue;
+      if(isWE(d)&&!((ea.arrive||{})[d]||(ea.depart||{})[d])) continue;
       const st=cellSt(emp,ea,d);
       if(st==='ab') absC++;
       else if(st==='va'){ vacC++;presDay++; }
@@ -4274,10 +4293,10 @@ function massAction(type){
     const ea = att[emp.id];
     const sh = getEmpShift(emp);
     if(type==='present'){
-      ea.arrive[d]=m2t(sh.s);ea.depart[d]=m2t(sh.e);
+      (ea.arrive||{})[d]=m2t(sh.s);(ea.depart||{})[d]=m2t(sh.e);
       ea.absent=ea.absent||{};ea.absent[d]=false;
     } else {
-      ea.arrive[d]='';ea.depart[d]='';
+      (ea.arrive||{})[d]='';(ea.depart||{})[d]='';
       ea.absent=ea.absent||{};ea.absent[d]=true;
     }
   });
