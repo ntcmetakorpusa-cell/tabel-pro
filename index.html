@@ -2867,7 +2867,7 @@ function exportFullTabель(){
 // СИНХРОНІЗАЦІЯ — Google Sheets як єдине сховище
 // ══════════════════════════════════════════════
 
-const GS_URL  = 'https://script.google.com/macros/s/AKfycbzY6Dg2ID_cPu8n-GajkPuYGQNSyxxmhYEEMNcb7n4GawCBY4cmeEEvgSO1iGukIjckDA/exec';
+const GS_URL  = 'https://script.google.com/macros/s/AKfycbyIl-5F1XPIKjDTySlYdR5qpMN7IzDP0JivRI0SkbOYwTJTgu_pufmJBsDP19ZDHo-Usg/exec';
 const LS_KEY  = 'tabelPRO_cache_v3';
 const LS_TS   = 'tabelPRO_ts';
 
@@ -2958,13 +2958,51 @@ async function doSaveGS(){
   isSyncing = true;
   setSyncIcon('saving');
   try {
+    // КРОК 1: Завантажити актуальний стан з GS
+    // і злити з нашими локальними змінами ПЕРЕД відправкою
+    try {
+      const rLoad = await fetch(GS_URL+'?action=load',{method:'GET',redirect:'follow'});
+      const jLoad = JSON.parse(await rLoad.text());
+      if(jLoad.ok && jLoad.data && jLoad.data.ATT){
+        // Merge: для кожного eid/дня — якщо у нас є дані → наші
+        //        якщо у нас немає → беремо з сервера
+        const srvATT = jLoad.data.ATT;
+        Object.keys(srvATT).forEach(k=>{
+          if(!ATT[k]) ATT[k]={};
+          Object.keys(srvATT[k]).forEach(eid=>{
+            const srv = srvATT[k][eid];
+            if(!srv) return;
+            if(!ATT[k][eid]){
+              ATT[k][eid]=srv; // У нас немає — беремо з сервера
+              return;
+            }
+            const loc = ATT[k][eid];
+            // Merge по днях: якщо локальний день порожній → беремо серверний
+            ['arrive','depart','absent','vacation'].forEach(field=>{
+              if(!srv[field]) return;
+              if(!loc[field]) loc[field]={};
+              Object.keys(srv[field]).forEach(day=>{
+                if(!loc[field][day]) loc[field][day]=srv[field][day];
+              });
+            });
+          });
+        });
+        // Merge CHAT з сервером
+        if(jLoad.data.CHAT && Array.isArray(jLoad.data.CHAT)){
+          const sIds=new Set(allChatMessages.map(m=>m.id));
+          jLoad.data.CHAT.forEach(m=>{ if(!sIds.has(m.id)) allChatMessages.push(m); });
+          allChatMessages.sort((a,b)=>a.id-b.id);
+          allChatMessages=allChatMessages.slice(-500);
+        }
+      }
+    } catch(loadErr){ /* продовжуємо навіть якщо не змогли завантажити */ }
+
+    // КРОК 2: Відправити злиті дані в GS
     const ts   = Date.now();
     const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave(),PASS,EID,CHAT:allChatMessages.slice(-500),ts});
     const r = await fetch(GS_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body});
     const j = JSON.parse(await r.text());
     if(j.ok){
-      // Запам'ятати hash після НАШОГО збереження
-      // щоб polling не реагував на власні зміни
       _myLastHash = j.ts || String(ts);
       saveLocalCache();
       setSyncIcon('ok');
@@ -2994,18 +3032,21 @@ async function loadFromGS(){
     if(d.PASS)  PASS=d.PASS;
     if(d.EID)   EID=d.EID;
 
-    // Merge ATT — не перезаписувати, а зливати
+    // Merge ATT — по кожному дню окремо (не перезаписувати весь запис!)
     if(d.ATT){
       Object.keys(d.ATT).forEach(k=>{
         if(!ATT[k]) ATT[k]={};
         Object.keys(d.ATT[k]).forEach(eid=>{
-          const newEa = d.ATT[k][eid];
-          if(!newEa) return;
-          const hasData = (newEa.arrive&&Object.keys(newEa.arrive).length>0)||
-                          (newEa.depart&&Object.keys(newEa.depart).length>0)||
-                          (newEa.absent&&Object.keys(newEa.absent).length>0)||
-                          (newEa.vacation&&Object.keys(newEa.vacation).length>0);
-          if(hasData) ATT[k][eid]=newEa;
+          const srv = d.ATT[k][eid];
+          if(!srv) return;
+          if(!ATT[k][eid]) ATT[k][eid]={arrive:{},depart:{},absent:{},vacation:{}};
+          const loc = ATT[k][eid];
+          // Merge кожне поле по кожному дню — сервер має пріоритет
+          ['arrive','depart','absent','vacation'].forEach(field=>{
+            if(!srv[field]) return;
+            if(!loc[field]) loc[field]={};
+            Object.keys(srv[field]).forEach(day=>{ loc[field][day]=srv[field][day]; });
+          });
         });
       });
     }
