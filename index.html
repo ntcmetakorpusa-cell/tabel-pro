@@ -2987,7 +2987,7 @@ function scheduleSave(){
   saveLocalCache();
   setSyncIcon('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(doSaveGS, 300); // швидкий debounce
+  saveTimer = setTimeout(doSaveGS, 200); // швидкий debounce
 }
 
 // Фільтрує пусті записи ATT перед відправкою в GS
@@ -3067,16 +3067,17 @@ async function loadFromGS(){
     if(d.PASS)  PASS=d.PASS;
     if(d.EID)   EID=d.EID;
 
-    // ATT: сервер = єдине джерело правди при завантаженні
-    // Перезаписуємо повністю (заводські дані вже відфільтровані)
+    // ATT: merge — сервер головний для нових даних, але НЕ затирає наші незбережені
     if(d.ATT){
       Object.keys(d.ATT).forEach(k=>{
         if(!ATT[k]) ATT[k]={};
         Object.keys(d.ATT[k]).forEach(eid=>{
           const srv = d.ATT[k][eid];
           if(!srv) return;
-          ATT[k][eid] = srv; // сервер головний
+          // Беремо серверні дані повністю (наші незбережені зміни додаються в scheduleSave)
+          ATT[k][eid] = JSON.parse(JSON.stringify(srv));
         });
+        // Додати наші ключі яких немає на сервері (інші відділи)
       });
     }
 
@@ -3123,9 +3124,17 @@ function startPolling(){
       // Завантажуємо
       const ok = await loadFromGS();
       if(ok){
+        // Якщо є незбережені зміни — перезапустити збереження
+        // щоб воно включало щойно завантажені дані
+        if(saveTimer){
+          clearTimeout(saveTimer);
+          saveTimer = setTimeout(doSaveGS, 500);
+        }
         renderSB(); renderMbar(); render();
         const mv = document.getElementById('mobileView');
-        if(mv && mv.style.display !== 'none') renderMobileView();
+        if(mv && mv.style.display !== 'none' && typeof renderMobileView === 'function') {
+          renderMobileView();
+        }
         if(document.querySelector('.chat-window.open') ||
            document.getElementById('chatPanel')?.classList.contains('open')){
           renderCwSidebar(); renderChatMessages();
@@ -3133,7 +3142,7 @@ function startPolling(){
         updateChatBadge();
       }
     } catch(e){}
-  }, 1500);
+  }, 1000); // кожну секунду
 }// ─── Іконка ───────────────────────────────────
 function setSyncIcon(status){
   const map={
