@@ -1834,7 +1834,10 @@ async function initApp(){
     startPolling(); // Слідкуємо за змінами від інших користувачів
   } else {
     setSyncIcon('offline');
-    if(!localLoaded) toast('⚠ Google Sheets не налаштовано — дані не будуть синхронізуватись між пристроями');
+    if(!localLoaded) toast('⚠ Google Sheets не налаштовано!');
+    // Показати постійне попередження
+    const syncEl = document.getElementById('syncIcon') || document.getElementById('syncIconD');
+    if(syncEl){ syncEl.textContent='⚠'; syncEl.title='GS_URL не вставлено! Дані зберігаються тільки локально і можуть бути втрачені. Вставте URL в tabel.html'; syncEl.style.cursor='help'; }
   }
   renderSB(); renderMbar(); render();
   checkBD(); checkVac();
@@ -2880,29 +2883,43 @@ let _myLastHash  = '';
 function saveLocalCache(){
   try {
     const d = {DEPTS,EMPS,ATT,PASS,EID,ts:Date.now()};
-    localStorage.setItem(LS_KEY, JSON.stringify(d));
+    const s = JSON.stringify(d);
+    // Зберігаємо в кількох ключах як резерв
+    localStorage.setItem(LS_KEY, s);
+    localStorage.setItem(LS_KEY+'_backup', s);
     localStorage.setItem(LS_TS, String(d.ts));
-  } catch(e){}
+    // Також зберігаємо в sessionStorage (не очищається при перезавантаженні)
+    try { sessionStorage.setItem(LS_KEY, s); } catch(e2){}
+  } catch(e){ console.warn('saveLocalCache:', e); }
   try { saveChatMsgs(); } catch(e){}
 }
 
 function loadLocalCache(){
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if(!raw) return false;
-    const d = JSON.parse(raw);
-    if(d.DEPTS) DEPTS=d.DEPTS;
-    if(d.EMPS)  EMPS=d.EMPS;
-    if(d.PASS)  PASS=d.PASS;
-    if(d.EID)   EID=d.EID;
-    if(d.ATT){
-      Object.keys(d.ATT).forEach(k=>{
-        if(!ATT[k]) ATT[k]={};
-        Object.keys(d.ATT[k]).forEach(eid=>{ ATT[k][eid]=d.ATT[k][eid]; });
-      });
-    }
-    return true;
-  } catch(e){ return false; }
+  // Спробувати основний → резервний → sessionStorage
+  const sources = [
+    ()=>localStorage.getItem(LS_KEY),
+    ()=>localStorage.getItem(LS_KEY+'_backup'),
+    ()=>sessionStorage.getItem(LS_KEY),
+  ];
+  for(const getSource of sources){
+    try {
+      const raw = getSource();
+      if(!raw) continue;
+      const d = JSON.parse(raw);
+      if(!d.DEPTS || !d.EMPS) continue;
+      DEPTS=d.DEPTS; EMPS=d.EMPS;
+      if(d.PASS) PASS=d.PASS;
+      if(d.EID)  EID=d.EID;
+      if(d.ATT){
+        Object.keys(d.ATT).forEach(k=>{
+          if(!ATT[k]) ATT[k]={};
+          Object.keys(d.ATT[k]).forEach(eid=>{ ATT[k][eid]=d.ATT[k][eid]; });
+        });
+      }
+      return true;
+    } catch(e){}
+  }
+  return false;
 }
 
 // ─── Зберегти в GS ────────────────────────────
