@@ -1759,12 +1759,23 @@ function _completeLogin(role, serverData){
     if(serverData.PASS)  PASS  = serverData.PASS;
     if(serverData.EID)   EID   = serverData.EID;
 
-    // ATT: merge замість перезапису
+    // ATT: merge по кожному дню (сервер має пріоритет)
     if(serverData.ATT){
       Object.keys(serverData.ATT).forEach(k=>{
         if(!ATT[k]) ATT[k]={};
         Object.keys(serverData.ATT[k]).forEach(eid=>{
-          ATT[k][eid] = serverData.ATT[k][eid];
+          const srv = serverData.ATT[k][eid];
+          if(!srv) return;
+          if(!ATT[k][eid]) ATT[k][eid]={arrive:{},depart:{},absent:{},vacation:{}};
+          const loc = ATT[k][eid];
+          ['arrive','depart','absent','vacation'].forEach(f=>{
+            if(!srv[f]) return;
+            if(!loc[f]) loc[f]={};
+            Object.keys(srv[f]).forEach(d=>{ loc[f][d]=srv[f][d]; });
+          });
+          if(srv.vacStart!==undefined) loc.vacStart=srv.vacStart;
+          if(srv.vacEnd!==undefined)   loc.vacEnd=srv.vacEnd;
+          if(srv.vacOk!==undefined)    loc.vacOk=srv.vacOk;
         });
       });
     }
@@ -1782,12 +1793,30 @@ function _completeLogin(role, serverData){
     saveLocalCache();
   }
 
+  // Скинути hash щоб polling відразу перевірив зміни
+  _myLastHash = '';
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('appShell').style.display = 'flex';
   initApp();
 }
 
 function doLogout(){
+  // Зберегти всі зміни перед виходом
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if(gsEnabled){
+    doSaveGS().then(()=>{
+      _performLogout();
+    }).catch(()=>{
+      _performLogout();
+    });
+  } else {
+    saveLocalCache();
+    _performLogout();
+  }
+}
+
+function _performLogout(){
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('appShell').style.display='none';
   selR='';
@@ -3090,15 +3119,10 @@ function startPolling(){
       // Якщо hash == наш останній збережений — це наші власні дані, не завантажувати
       if(serverHash === _myLastHash) return;
 
-      // Є зміни від ІНШОГО пристрою — завантажуємо
-      const prevHash = _myLastHash;
-      _myLastHash = serverHash; // одразу оновити щоб не завантажувати двічі
+      // Hash змінився — є нові дані
+      _myLastHash = serverHash;
 
-      if(prevHash === '') {
-        // Перший polling — просто запам'ятати hash
-        return;
-      }
-
+      // Завантажуємо завжди коли hash відрізняється
       const ok = await loadFromGS();
       if(ok){
         renderSB(); renderMbar(); render();
