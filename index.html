@@ -364,10 +364,11 @@ input,select,textarea{font-family:var(--font)}
 .ldot{width:8px;height:8px;border-radius:3px;flex-shrink:0}
 
 /* ── TABLE ── */
-.ta{flex:1;overflow:auto;padding:14px 22px 20px;background:var(--bg)}
+.ta{flex:1;overflow:hidden;padding:14px 22px 20px;background:var(--bg);display:flex;flex-direction:column}
 .tw{
-  background:var(--s0);border:1px solid var(--bd);border-radius:var(--r16);
+  background:var(--s0);border:1px solid var(--bd);border-radius:0 0 var(--r16) var(--r16);
   overflow:auto;box-shadow:var(--sh1);
+  flex:1;min-height:0;
 }
 /* Скролбар зверху — синхронізований дзеркальний */
 .scroll-mirror{
@@ -378,13 +379,14 @@ input,select,textarea{font-family:var(--font)}
   border-radius:var(--r8) var(--r8) 0 0;
   border-bottom:none;
   cursor:ew-resize;
+  flex-shrink:0;
 }
 .scroll-mirror-inner{height:1px;pointer-events:none}
 table{border-collapse:collapse;width:max-content;min-width:100%}
-thead th{position:sticky;top:0;z-index:10;background:var(--s1)}
+thead th{position:sticky;top:0;z-index:10;background:var(--s1);box-shadow:0 2px 4px rgba(0,0,0,.06)}
 th.nc,td.nc{position:sticky;left:0;background:var(--s1)}
-th.nc{z-index:13} /* Кут: і top і left sticky */
-td.nc{z-index:6;background:var(--s0)}
+th.nc{z-index:15;box-shadow:2px 2px 4px rgba(0,0,0,.06)} /* Кут: і top і left sticky */
+td.nc{z-index:6;background:var(--s0);box-shadow:2px 0 4px rgba(0,0,0,.04)}
 tr:hover td.nc{background:var(--s2)}
 
 th{
