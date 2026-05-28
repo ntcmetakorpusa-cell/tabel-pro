@@ -2911,6 +2911,7 @@ let saveTimer    = null;
 // Хеш останнього УСПІШНОГО збереження/завантаження
 // Використовується щоб polling не реагував на власні зміни
 let _myLastHash  = '';
+let _lastSyncTs  = 0; // timestamp останнього завантаження
 
 // ─── Кеш ──────────────────────────────────────
 function saveLocalCache(){
@@ -3061,7 +3062,7 @@ async function loadFromGS(){
     }
 
     // Запам'ятати timestamp останніх завантажених даних
-    if(d.ts) _myLastHash = String(d.ts);
+    // _myLastHash вже оновлено в startPolling до виклику loadFromGS
     saveLocalCache();
     setSyncIcon('ok');
     return true;
@@ -3077,23 +3078,22 @@ function startPolling(){
   if(!gsEnabled) return;
 
   setInterval(async ()=>{
-    // Не опитувати тільки якщо ми зараз зберігаємо
     if(isSyncing) return;
-
     try {
-      const r = await fetch(_effectiveGsUrl+'?action=hash', {
-        method:'GET', redirect:'follow'
-      });
+      const r = await fetch(_effectiveGsUrl+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
       if(!j.ok) return;
 
       const serverHash = String(j.hash||j.ts||'');
-      if(!serverHash || serverHash === _myLastHash) return;
+      const serverTs   = parseInt(j.ts)||0;
+      if(!serverHash) return;
 
-      // Є нові дані від іншого пристрою
+      // Пропускаємо якщо це наше власне збереження
+      if(serverHash === _myLastHash) return;
+
       _myLastHash = serverHash;
-      console.log('[Табель] Нові дані з GS, завантажую...');
 
+      // Завантажуємо
       const ok = await loadFromGS();
       if(ok){
         renderSB(); renderMbar(); render();
@@ -3101,18 +3101,13 @@ function startPolling(){
         if(mv && mv.style.display !== 'none') renderMobileView();
         if(document.querySelector('.chat-window.open') ||
            document.getElementById('chatPanel')?.classList.contains('open')){
-          renderCwSidebar();
-          renderChatMessages();
+          renderCwSidebar(); renderChatMessages();
         }
         updateChatBadge();
-        console.log('[Табель] Оновлено!');
       }
-    } catch(e){
-      console.warn('[Табель] Poll error:', e.message);
-    }
-  }, 1500); // кожні 1.5 секунди
-}
-// ─── Іконка ───────────────────────────────────
+    } catch(e){}
+  }, 1500);
+}// ─── Іконка ───────────────────────────────────
 function setSyncIcon(status){
   const map={
     loading:{ico:'🔄',tip:'Завантаження...'},
