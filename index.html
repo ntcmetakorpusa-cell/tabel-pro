@@ -2871,7 +2871,10 @@ const GS_URL  = 'https://script.google.com/macros/s/AKfycbyIl-5F1XPIKjDTySlYdR5q
 const LS_KEY  = 'tabelPRO_cache_v3';
 const LS_TS   = 'tabelPRO_ts';
 
-let gsEnabled    = GS_URL !== 'YOUR_APPS_SCRIPT_URL';
+// Перевірити збережений URL з localStorage
+const _savedGsUrl = localStorage.getItem('tabelPRO_gsUrl');
+const _effectiveGsUrl = (GS_URL !== 'YOUR_APPS_SCRIPT_URL') ? GS_URL : (_savedGsUrl||'');
+let gsEnabled = _effectiveGsUrl.startsWith('https://');
 let isSyncing    = false;
 let saveTimer    = null;
 
@@ -2961,7 +2964,7 @@ async function doSaveGS(){
     // КРОК 1: Завантажити актуальний стан з GS
     // і злити з нашими локальними змінами ПЕРЕД відправкою
     try {
-      const rLoad = await fetch(GS_URL+'?action=load',{method:'GET',redirect:'follow'});
+      const rLoad = await fetch(_effectiveGsUrl+'?action=load',{method:'GET',redirect:'follow'});
       const jLoad = JSON.parse(await rLoad.text());
       if(jLoad.ok && jLoad.data && jLoad.data.ATT){
         // Merge: для кожного eid/дня — якщо у нас є дані → наші
@@ -3000,7 +3003,7 @@ async function doSaveGS(){
     // КРОК 2: Відправити злиті дані в GS
     const ts   = Date.now();
     const body = JSON.stringify({DEPTS,EMPS,ATT:attToSave(),PASS,EID,CHAT:allChatMessages.slice(-500),ts});
-    const r = await fetch(GS_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body});
+    const r = await fetch(_effectiveGsUrl,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body});
     const j = JSON.parse(await r.text());
     if(j.ok){
       _myLastHash = j.ts || String(ts);
@@ -3021,7 +3024,7 @@ async function loadFromGS(){
   if(!gsEnabled) return false;
   try {
     setSyncIcon('loading');
-    const r = await fetch(GS_URL+'?action=load',{method:'GET',redirect:'follow'});
+    const r = await fetch(_effectiveGsUrl+'?action=load',{method:'GET',redirect:'follow'});
     if(!r.ok) return false;
     const j = JSON.parse(await r.text());
     if(!j.ok || !j.data) return false;
@@ -3077,7 +3080,7 @@ function startPolling(){
     if(isSyncing || saveTimer) return;
 
     try {
-      const r = await fetch(GS_URL+'?action=hash',{method:'GET',redirect:'follow'});
+      const r = await fetch(_effectiveGsUrl+'?action=hash',{method:'GET',redirect:'follow'});
       const j = JSON.parse(await r.text());
       if(!j.ok) return;
 
@@ -4484,6 +4487,43 @@ function initMirrorScroll(){
 }
 
 initMirrorScroll();
+
+// ─── Банер про налаштування GS ────────────────
+function showGSBanner(){
+  if(!document.getElementById('gsBanner')){
+    const b = document.createElement('div');
+    b.id = 'gsBanner';
+    b.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9000;'+
+      'background:#1e293b;color:#fff;padding:14px 20px;border-radius:14px;'+
+      'box-shadow:0 8px 32px rgba(0,0,0,.3);display:flex;align-items:center;gap:12px;'+
+      'max-width:90vw;font-size:13px;';
+    b.innerHTML = '<span>⚠️ <b>Google Sheets не підключено</b> — дані не синхронізуються між пристроями</span>'+
+      '<button onclick="promptGSUrl()" style="background:#4361ee;color:#fff;border:none;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap">Підключити</button>'+
+      '<button onclick="this.parentNode.remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:18px;padding:0 4px">×</button>';
+    document.body.appendChild(b);
+  }
+}
+
+function promptGSUrl(){
+  const url = prompt(
+    'Вставте URL вашого Google Apps Script:\n\n' +
+    'Де взяти: Apps Script → Розгорнути → Керувати розгортаннями → скопіювати URL'
+  );
+  if(!url || !url.startsWith('https://')) return;
+  // Зберегти в localStorage щоб не вводити кожного разу
+  localStorage.setItem('tabelPRO_gsUrl', url);
+  alert('URL збережено! Перезавантажте сторінку щоб застосувати.');
+  location.reload();
+}
+
+// Завантажити GS_URL з localStorage якщо вставлено через promptGSUrl
+(function(){
+  const saved = localStorage.getItem('tabelPRO_gsUrl');
+  if(saved && saved.startsWith('https://') && GS_URL === 'YOUR_APPS_SCRIPT_URL'){
+    // Патч GS_URL з localStorage
+    window._GS_URL_OVERRIDE = saved;
+  }
+})();
 </script>
 </body>
 </html>
