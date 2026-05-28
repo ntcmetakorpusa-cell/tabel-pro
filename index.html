@@ -2908,10 +2908,15 @@ function exportFullTabель(){
 // ══════════════════════════════════════════════
 
 const GS_URL  = 'https://script.google.com/macros/s/AKfycbyIl-5F1XPIKjDTySlYdR5qpMN7IzDP0JivRI0SkbOYwTJTgu_pufmJBsDP19ZDHo-Usg/exec';
-const LS_KEY  = 'tabelPRO_cache_v3';
-const LS_TS   = 'tabelPRO_ts';
+const LS_KEY  = 'tabelPRO_cache_v4';
+const LS_TS   = 'tabelPRO_ts_v4';
 
 // Перевірити збережений URL з localStorage
+// Очистити старий кеш (v1/v2/v3) якщо є — там можуть бути заводські дані
+['tabelPRO_cache_v1','tabelPRO_cache_v2','tabelPRO_cache_v3',
+ 'tabelPRO_cache_v1_backup','tabelPRO_cache_v2_backup','tabelPRO_cache_v3_backup'].forEach(k=>{
+  if(localStorage.getItem(k)) localStorage.removeItem(k);
+});
 const _savedGsUrl = localStorage.getItem('tabelPRO_gsUrl');
 const _effectiveGsUrl = (GS_URL !== 'YOUR_APPS_SCRIPT_URL') ? GS_URL : (_savedGsUrl||'');
 let gsEnabled = _effectiveGsUrl.startsWith('https://');
@@ -2957,7 +2962,18 @@ function loadLocalCache(){
       if(d.ATT){
         Object.keys(d.ATT).forEach(k=>{
           if(!ATT[k]) ATT[k]={};
-          Object.keys(d.ATT[k]).forEach(eid=>{ ATT[k][eid]=d.ATT[k][eid]; });
+          Object.keys(d.ATT[k]).forEach(eid=>{
+            const ea = d.ATT[k][eid];
+            if(!ea) return;
+            // Пропустити заводські дані (arrive на кожен день з однаковим часом)
+            const arrKeys = Object.keys(ea.arrive||{});
+            if(arrKeys.length >= 20){
+              const vals = arrKeys.map(d2=>ea.arrive[d2]);
+              const allSame = vals.every(v=>v===vals[0]);
+              if(allSame) return; // це заводські дані — пропускаємо
+            }
+            ATT[k][eid] = ea;
+          });
         });
       }
       return true;
@@ -2984,6 +3000,13 @@ function attToSave(){
     Object.keys(ATT[k]).forEach(eid=>{
       const ea=ATT[k][eid];
       if(!ea) return;
+      if(!ea.arrive && !ea.depart && !ea.absent && !ea.vacation) return;
+      const arrKeys = Object.keys(ea.arrive||{});
+      // Пропустити заводські дані (всі дні однаковий час)
+      if(arrKeys.length >= 20){
+        const vals = arrKeys.map(d2=>ea.arrive[d2]);
+        if(vals.every(v=>v===vals[0])) return;
+      }
       const hasData=(ea.arrive&&Object.keys(ea.arrive).length>0)||
                     (ea.depart&&Object.keys(ea.depart).length>0)||
                     (ea.absent&&Object.keys(ea.absent).length>0)||
@@ -3044,21 +3067,15 @@ async function loadFromGS(){
     if(d.PASS)  PASS=d.PASS;
     if(d.EID)   EID=d.EID;
 
-    // Merge ATT — по кожному дню окремо (не перезаписувати весь запис!)
+    // ATT: сервер = єдине джерело правди при завантаженні
+    // Перезаписуємо повністю (заводські дані вже відфільтровані)
     if(d.ATT){
       Object.keys(d.ATT).forEach(k=>{
         if(!ATT[k]) ATT[k]={};
         Object.keys(d.ATT[k]).forEach(eid=>{
           const srv = d.ATT[k][eid];
           if(!srv) return;
-          if(!ATT[k][eid]) ATT[k][eid]={arrive:{},depart:{},absent:{},vacation:{}};
-          const loc = ATT[k][eid];
-          // Merge кожне поле по кожному дню — сервер має пріоритет
-          ['arrive','depart','absent','vacation'].forEach(field=>{
-            if(!srv[field]) return;
-            if(!loc[field]) loc[field]={};
-            Object.keys(srv[field]).forEach(day=>{ loc[field][day]=srv[field][day]; });
-          });
+          ATT[k][eid] = srv; // сервер головний
         });
       });
     }
