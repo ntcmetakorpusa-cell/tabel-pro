@@ -1018,7 +1018,8 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
       </div>
 
       <!-- Синхронізація -->
-      <span id="syncIcon" style="font-size:15px;cursor:pointer;padding:3px;flex-shrink:0" onclick="saveToGS()" title="Синхронізація">⚪</span>
+      <span id="syncIcon" style="font-size:15px;cursor:pointer;padding:3px;flex-shrink:0" onclick="saveToGS()" title="Натисніть для збереження / утримуйте для діагностики">⚪</span>
+      <button onclick="diagSync()" style="font-size:10px;padding:2px 6px;border-radius:6px;border:1px solid var(--bd);background:var(--s1);color:var(--tx3);cursor:pointer;flex-shrink:0" title="Діагностика синхронізації">🔍</button>
 
       <!-- DESKTOP: повна навігація (прихована на мобайлі) -->
       <div class="desktop-only" style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
@@ -4516,6 +4517,68 @@ function promptGSUrl(){
     window._GS_URL_OVERRIDE = saved;
   }
 })();
+
+// ═══ ДІАГНОСТИКА СИНХРОНІЗАЦІЇ ═══
+async function diagSync(){
+  const lines = [];
+  lines.push('=== ДІАГНОСТИКА СИНХРОНІЗАЦІЇ ===');
+  lines.push('');
+  lines.push('GS_URL: ' + (GS_URL === 'YOUR_APPS_SCRIPT_URL' ? '❌ НЕ ВСТАВЛЕНИЙ' : '✅ ' + GS_URL.slice(0,50)+'...'));
+  lines.push('_effectiveGsUrl: ' + (_effectiveGsUrl ? '✅ ' + _effectiveGsUrl.slice(0,50)+'...' : '❌ ПОРОЖНІЙ'));
+  lines.push('gsEnabled: ' + (gsEnabled ? '✅ true' : '❌ false'));
+  lines.push('_myLastHash: ' + (_myLastHash || '(порожній)'));
+  lines.push('');
+
+  if(!gsEnabled){
+    lines.push('❌ GS не підключено — синхронізація вимкнена');
+    alert(lines.join('\n')); return;
+  }
+
+  lines.push('Перевіряю hash...');
+  try {
+    const r1 = await fetch(_effectiveGsUrl+'?action=hash',{method:'GET',redirect:'follow'});
+    const j1 = JSON.parse(await r1.text());
+    lines.push('action=hash відповідь: ' + JSON.stringify(j1).slice(0,100));
+    lines.push('serverHash: ' + (j1.hash||j1.ts||'???'));
+    lines.push('Наш hash: ' + _myLastHash);
+    lines.push('Збігаються: ' + (String(j1.hash||j1.ts) === _myLastHash ? '✅ (наші власні дані)' : '⚠️ РІЗНІ — треба завантажити'));
+    lines.push('');
+
+    const r2 = await fetch(_effectiveGsUrl+'?action=load',{method:'GET',redirect:'follow'});
+    const j2 = JSON.parse(await r2.text());
+    lines.push('action=load: ok=' + j2.ok + ', data=' + (j2.data ? 'є (' + Object.keys(j2.data||{}).join(',') + ')' : 'НЕМАЄ'));
+    if(j2.data && j2.data.ATT){
+      const attKeys = Object.keys(j2.data.ATT);
+      lines.push('ATT ключі на сервері: ' + attKeys.join(', '));
+      attKeys.forEach(k => {
+        const empKeys = Object.keys(j2.data.ATT[k]);
+        let withData = 0;
+        empKeys.forEach(eid => {
+          const ea = j2.data.ATT[k][eid];
+          if(ea && ((ea.arrive&&Object.keys(ea.arrive).length)||(ea.depart&&Object.keys(ea.depart).length))) withData++;
+        });
+        lines.push('  ' + k + ': ' + empKeys.length + ' записів, ' + withData + ' з даними');
+      });
+    }
+    if(j2.data && j2.data.ts) lines.push('Серверний ts: ' + j2.data.ts);
+  } catch(e) {
+    lines.push('❌ ПОМИЛКА: ' + e.message);
+  }
+
+  lines.push('');
+  lines.push('Локальний ATT:');
+  Object.keys(ATT).forEach(k => {
+    const empKeys = Object.keys(ATT[k]||{});
+    let withData = 0;
+    empKeys.forEach(eid => {
+      const ea = ATT[k][eid];
+      if(ea && ((ea.arrive&&Object.keys(ea.arrive).length)||(ea.depart&&Object.keys(ea.depart).length))) withData++;
+    });
+    lines.push('  ' + k + ': ' + empKeys.length + ' записів, ' + withData + ' з даними');
+  });
+
+  alert(lines.join('\n'));
+}
 </script>
 </body>
 </html>
