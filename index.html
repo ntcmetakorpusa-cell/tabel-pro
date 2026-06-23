@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-<title>Табель PRO · build 20260623-195301</title>
+<title>Табель PRO · build 20260623-200218</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-window.__BUILD_ID__ = '20260623-195301';
+window.__BUILD_ID__ = '20260623-200218';
 </script>
 
 <style>
@@ -3053,7 +3053,7 @@ async function doSaveGS(){
       CHAT:allChatMessages.slice(-500), ts
     });
     const r = await fetch(_effectiveGsUrl, {
-      method:'POST', redirect:'follow',
+      method:'POST', redirect:'follow', cache:'no-store',
       headers:{'Content-Type':'text/plain'}, body
     });
     const j = JSON.parse(await r.text());
@@ -3078,7 +3078,7 @@ async function loadFromGS(){
   if(!gsEnabled) return false;
   try {
     setSyncIcon('loading');
-    const r = await fetch(_effectiveGsUrl+'?action=load',{method:'GET',redirect:'follow'});
+    const r = await fetch(_effectiveGsUrl+'?action=load&_t='+Date.now(),{method:'GET',redirect:'follow',cache:'no-store'});
     if(!r.ok) return false;
     const j = JSON.parse(await r.text());
     if(!j.ok || !j.data) return false;
@@ -3130,7 +3130,7 @@ function startPolling(){
   setInterval(async ()=>{
     if(isSyncing) return;
     try {
-      const r = await fetch(_effectiveGsUrl+'?action=hash',{method:'GET',redirect:'follow'});
+      const r = await fetch(_effectiveGsUrl+'?action=hash&_t='+Date.now(),{method:'GET',redirect:'follow',cache:'no-store'});
       const j = JSON.parse(await r.text());
       if(!j.ok) return;
 
@@ -4594,7 +4594,7 @@ async function diagSync(){
 
   lines.push('Перевіряю hash...');
   try {
-    const r1 = await fetch(_effectiveGsUrl+'?action=hash',{method:'GET',redirect:'follow'});
+    const r1 = await fetch(_effectiveGsUrl+'?action=hash&_t='+Date.now(),{method:'GET',redirect:'follow',cache:'no-store'});
     const j1 = JSON.parse(await r1.text());
     lines.push('action=hash відповідь: ' + JSON.stringify(j1).slice(0,100));
     lines.push('serverHash: ' + (j1.hash||j1.ts||'???'));
@@ -4602,7 +4602,7 @@ async function diagSync(){
     lines.push('Збігаються: ' + (String(j1.hash||j1.ts) === _myLastHash ? '✅ (наші власні дані)' : '⚠️ РІЗНІ — треба завантажити'));
     lines.push('');
 
-    const r2 = await fetch(_effectiveGsUrl+'?action=load',{method:'GET',redirect:'follow'});
+    const r2 = await fetch(_effectiveGsUrl+'?action=load&_t='+Date.now(),{method:'GET',redirect:'follow',cache:'no-store'});
     const j2 = JSON.parse(await r2.text());
     lines.push('action=load: ok=' + j2.ok + ', data=' + (j2.data ? 'є (' + Object.keys(j2.data||{}).join(',') + ')' : 'НЕМАЄ'));
     if(j2.data && j2.data.ATT){
