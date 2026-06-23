@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-<title>Табель PRO</title>
+<title>Табель PRO · build 20260623-195301</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+window.__BUILD_ID__ = '20260623-195301';
+</script>
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -4577,6 +4579,7 @@ function promptGSUrl(){
 async function diagSync(){
   const lines = [];
   lines.push('=== ДІАГНОСТИКА СИНХРОНІЗАЦІЇ ===');
+  lines.push('BUILD: ' + (window.__BUILD_ID__ || 'невідомо'));
   lines.push('');
   lines.push('GS_URL: ' + (GS_URL === 'YOUR_APPS_SCRIPT_URL' ? '❌ НЕ ВСТАВЛЕНИЙ' : '✅ ' + GS_URL.slice(0,50)+'...'));
   lines.push('_effectiveGsUrl: ' + (_effectiveGsUrl ? '✅ ' + _effectiveGsUrl.slice(0,50)+'...' : '❌ ПОРОЖНІЙ'));
