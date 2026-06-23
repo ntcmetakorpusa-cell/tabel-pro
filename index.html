@@ -2907,7 +2907,7 @@ function exportFullTabель(){
 // СИНХРОНІЗАЦІЯ — Google Sheets як єдине сховище
 // ══════════════════════════════════════════════
 
-const GS_URL  = 'https://script.google.com/macros/s/AKfycbyIl-5F1XPIKjDTySlYdR5qpMN7IzDP0JivRI0SkbOYwTJTgu_pufmJBsDP19ZDHo-Usg/exec';
+const GS_URL  = 'https://script.google.com/macros/s/AKfycbx29W0DT0Uha_WLibD3LOOXHjGarrRzbAM1wBK1jyuyCVeGGV34wpo9dCXr3yoldu7bYQ/exec';
 const LS_KEY  = 'tabelPRO_cache_v4';
 const LS_TS   = 'tabelPRO_ts_v4';
 
@@ -2992,6 +2992,12 @@ function scheduleSave(){
 
 // Фільтрує пусті записи ATT перед відправкою в GS
 // Це критично! Без цього пусті {} перезаписують реальні дані
+// Перевірити чи об'єкт {день: значення} має хоч одне НЕ порожнє значення
+function _hasRealValues(obj){
+  if(!obj) return false;
+  return Object.values(obj).some(v => v !== '' && v !== null && v !== undefined && v !== false);
+}
+
 function attToSave(){
   const r={};
   Object.keys(ATT).forEach(k=>{
@@ -3000,18 +3006,32 @@ function attToSave(){
     Object.keys(ATT[k]).forEach(eid=>{
       const ea=ATT[k][eid];
       if(!ea) return;
-      if(!ea.arrive && !ea.depart && !ea.absent && !ea.vacation) return;
-      const arrKeys = Object.keys(ea.arrive||{});
-      // Пропустити заводські дані (всі дні однаковий час)
+
+      // Перевірити чи є хоч щось не порожнє в будь-якому полі
+      const arrHas = _hasRealValues(ea.arrive);
+      const depHas = _hasRealValues(ea.depart);
+      const absHas = _hasRealValues(ea.absent);
+      const vacHas = _hasRealValues(ea.vacation);
+      if(!arrHas && !depHas && !absHas && !vacHas) return;
+
+      // Пропустити заводські дані (20+ днів з однаковим часом — типовий шаблон mkEmpAtt)
+      const arrKeys = Object.keys(ea.arrive||{}).filter(d2=>ea.arrive[d2]!=='');
       if(arrKeys.length >= 20){
         const vals = arrKeys.map(d2=>ea.arrive[d2]);
         if(vals.every(v=>v===vals[0])) return;
       }
-      const hasData=(ea.arrive&&Object.keys(ea.arrive).length>0)||
-                    (ea.depart&&Object.keys(ea.depart).length>0)||
-                    (ea.absent&&Object.keys(ea.absent).length>0)||
-                    (ea.vacation&&Object.keys(ea.vacation).length>0);
-      if(hasData) empData[eid]=ea;
+
+      // Очистити поля від порожніх ключів перед відправкою (зменшує розмір і конфлікти)
+      const clean = {arrive:{},depart:{},absent:{},vacation:{}};
+      if(ea.arrive)   Object.keys(ea.arrive).forEach(d2=>{ if(ea.arrive[d2]!=='') clean.arrive[d2]=ea.arrive[d2]; });
+      if(ea.depart)   Object.keys(ea.depart).forEach(d2=>{ if(ea.depart[d2]!=='') clean.depart[d2]=ea.depart[d2]; });
+      if(ea.absent)   Object.keys(ea.absent).forEach(d2=>{ if(ea.absent[d2])      clean.absent[d2]=true; });
+      if(ea.vacation) Object.keys(ea.vacation).forEach(d2=>{ if(ea.vacation[d2])  clean.vacation[d2]=true; });
+      if(ea.vacStart!==undefined) clean.vacStart=ea.vacStart;
+      if(ea.vacEnd!==undefined)   clean.vacEnd=ea.vacEnd;
+      if(ea.vacOk!==undefined)    clean.vacOk=ea.vacOk;
+
+      empData[eid]=clean;
     });
     if(Object.keys(empData).length>0) r[k]=empData;
   });
