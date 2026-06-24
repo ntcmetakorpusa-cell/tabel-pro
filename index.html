@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-<title>Табель PRO · build 20260623-220824</title>
+<title>Табель PRO · build 20260623-221951</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script>window.__BUILD_ID__ = '20260623-220824';</script>
+<script>window.__BUILD_ID__ = '20260623-221951';</script>
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -3123,30 +3123,36 @@ async function loadFromGS(){
 }
 
 // ─── Polling — тільки для ЧУЖИХ змін ──────────
+let _pollTickCount = 0;
+window.__pollStatus = 'не запущено';
+
 function startPolling(){
-  if(!gsEnabled) return;
+  if(!gsEnabled){ window.__pollStatus = 'gsEnabled=false, polling не запущено'; return; }
+  window.__pollStatus = 'запущено, очікую перший тік...';
 
   setInterval(async ()=>{
-    if(isSyncing) return;
+    _pollTickCount++;
+    if(isSyncing){ window.__pollStatus = 'тік #'+_pollTickCount+': пропущено (isSyncing=true)'; return; }
     try {
+      window.__pollStatus = 'тік #'+_pollTickCount+': запит hash...';
       const r = await fetch(_effectiveGsUrl+'?action=hash&_t='+Date.now(),{method:'GET',redirect:'follow',cache:'no-store'});
       const j = JSON.parse(await r.text());
-      if(!j.ok) return;
+      if(!j.ok){ window.__pollStatus = 'тік #'+_pollTickCount+': hash відповідь ok=false'; return; }
 
       const serverHash = String(j.hash||j.ts||'');
-      const serverTs   = parseInt(j.ts)||0;
-      if(!serverHash) return;
+      if(!serverHash){ window.__pollStatus = 'тік #'+_pollTickCount+': serverHash порожній'; return; }
 
-      // Пропускаємо якщо це наше власне збереження
-      if(serverHash === _myLastHash) return;
+      if(serverHash === _myLastHash){
+        window.__pollStatus = 'тік #'+_pollTickCount+': hash не змінився ('+serverHash+')';
+        return;
+      }
 
+      window.__pollStatus = 'тік #'+_pollTickCount+': HASH ЗМІНИВСЯ ('+_myLastHash+' -> '+serverHash+'), завантажую...';
       _myLastHash = serverHash;
 
-      // Завантажуємо
       const ok = await loadFromGS();
       if(ok){
-        // Якщо є незбережені зміни — перезапустити збереження
-        // щоб воно включало щойно завантажені дані
+        window.__pollStatus = 'тік #'+_pollTickCount+': завантажено, оновлюю UI...';
         if(saveTimer){
           clearTimeout(saveTimer);
           saveTimer = setTimeout(doSaveGS, 500);
@@ -3161,8 +3167,13 @@ function startPolling(){
           renderCwSidebar(); renderChatMessages();
         }
         updateChatBadge();
+        window.__pollStatus = 'тік #'+_pollTickCount+': ✅ UI оновлено успішно';
+      } else {
+        window.__pollStatus = 'тік #'+_pollTickCount+': loadFromGS() повернув false';
       }
-    } catch(e){}
+    } catch(e){
+      window.__pollStatus = 'тік #'+_pollTickCount+': ❌ ПОМИЛКА: ' + e.message + ' | ' + (e.stack||'').slice(0,200);
+    }
   }, 1000); // кожну секунду
 }// ─── Іконка ───────────────────────────────────
 function setSyncIcon(status){
@@ -4579,6 +4590,7 @@ async function diagSync(){
   const lines = [];
   lines.push('=== ДІАГНОСТИКА СИНХРОНІЗАЦІЇ ===');
   lines.push('BUILD: ' + (window.__BUILD_ID__ || 'невідомо'));
+  lines.push('POLL STATUS: ' + (window.__pollStatus || 'не запущено'));
   lines.push('');
   lines.push('GS_URL: ' + (GS_URL === 'YOUR_APPS_SCRIPT_URL' ? '❌ НЕ ВСТАВЛЕНИЙ' : '✅ ' + GS_URL.slice(0,50)+'...'));
   lines.push('_effectiveGsUrl: ' + (_effectiveGsUrl ? '✅ ' + _effectiveGsUrl.slice(0,50)+'...' : '❌ ПОРОЖНІЙ'));
