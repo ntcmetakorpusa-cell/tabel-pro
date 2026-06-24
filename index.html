@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
-<title>Табель PRO · build 20260623-221951</title>
+<title>Табель PRO · build 20260624-050118</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script>window.__BUILD_ID__ = '20260623-221951';</script>
+<script>window.__BUILD_ID__ = '20260624-050118';</script>
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -931,6 +931,8 @@ select.fi{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=
 </style>
 </head>
 <body>
+<div id="liveSyncBadge" style="position:fixed;top:4px;right:4px;z-index:99999;background:#000;color:#0f0;font:11px monospace;padding:4px 8px;border-radius:6px;opacity:0.85;pointer-events:none;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">init...</div>
+
 
 <!-- ═══ LOGIN ═══ -->
 <div id="loginScreen">
@@ -1865,6 +1867,7 @@ async function initApp(){
       setSyncIcon('error');
     }
     startPolling(); // Слідкуємо за змінами від інших користувачів
+    setInterval(()=>{ _updateSyncBadge(); }, 300);
   } else {
     setSyncIcon('offline');
     if(!localLoaded) toast('⚠ Google Sheets не налаштовано!');
@@ -3126,6 +3129,11 @@ async function loadFromGS(){
 let _pollTickCount = 0;
 window.__pollStatus = 'не запущено';
 
+
+function _updateSyncBadge(){
+  const el = document.getElementById('liveSyncBadge');
+  if(el) el.textContent = window.__pollStatus || '...';
+}
 function startPolling(){
   if(!gsEnabled){ window.__pollStatus = 'gsEnabled=false, polling не запущено'; return; }
   window.__pollStatus = 'запущено, очікую перший тік...';
